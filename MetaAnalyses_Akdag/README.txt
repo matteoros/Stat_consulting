@@ -17,7 +17,7 @@ A brief explanation of the files in this ZIP folder
    in my meta-analysis.
 3) Two Metacognition Papers =  this folder included two examples of papers that will be
    included in my meta-analysis.
-4) Word file Systmatic Review Documentation = this file contains the entire process up
+4) Word file Systematic Review Documentation = this file contains the entire process up
    until this point (from search terms to inclusion criteria)
 5) Excel file PaperCharacterizationTable = this file contains the coding scheme for the
    papers that will be included. This file has its own README section.
