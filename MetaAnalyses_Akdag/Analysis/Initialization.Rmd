@@ -1,0 +1,108 @@
+---
+title: "Statistical Consulting"
+author: "Matteo Rossi"
+date: "2023-09-28"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Statistical Consulting Project
+
+## Importing initial packages
+
+```{r}
+library(dplyr)
+```
+
+## Importing the dataset
+
+```{r}
+library(readxl)
+df_hrv = read_excel("DATA/ReviewPaper_hrv.xlsx")
+df_meta = read_excel("DATA/ReviewPaper_meta.xlsx")
+```
+
+```{r}
+colnames(df_hrv)
+```
+
+
+```{r}
+df_hrv = df_hrv |> select(c("TITLE", "AUTHOR", "INCLUDED")) |>
+  filter(!is.na(TITLE)) |> filter(INCLUDED == "yes") |>
+  select(TITLE, AUTHOR) |> mutate(ID = 1:61, study_type = "hrv")
+
+df_meta = df_meta |> select(c("TITLE", "AUTHOR", "INCLUDED")) |>
+  filter(!is.na(TITLE)) |> filter(INCLUDED == "yes") |>
+  select(TITLE, AUTHOR) |> mutate(ID = 1:34, study_type = "meta")
+```
+
+```{r}
+df_tot = rbind(df_hrv, df_meta) |> select(ID, TITLE, AUTHOR, study_type)
+df_tot
+```
+This is the full dataset. Now we will concentrate extracting from the different papers several effects size information regarding our problem:
+
+## Extraction of Effects size
+
+Importing the initial dataset provided by our client:
+
+```{r}
+df_data = read_excel("DATA/PaperCharacterizationTable_latest.xlsx", skip = 1) 
+```
+
+Data Manipulation for extracting the correct ID and Title to the following initial dataset:
+
+```{r}
+df_data = df_data[-c(4, 11, 20, 25, 26, 34, 36)]
+colnames(df_data)
+```
+
+
+```{r}
+df_done = df_meta[df_meta$AUTHOR %in% df_data$Authors,]
+df_done
+```
+
+```{r}
+df_data$ID = c(df_done$ID, rep(35, 3))
+
+title = "The impact of metacognitive beliefs and anticipatory processing on state anxiety in high socially anxious individuals in a speech task"
+df_data$Title = c(df_done$TITLE, rep(title, 3))
+```
+
+
+## Selecting the variables that we are interested
+
+```{r}
+colnames(df_data)
+```
+
+From this list of papers we have to extract those following information about. Now let's split the amount of work equally:
+
+```{r}
+df_meta_todo = df_meta[!df_meta$TITLE %in% df_data$Title, ]
+
+set.seed(43)
+indices = sample(30, 15)
+
+df_meta_Matteo = df_meta_todo[indices,]
+df_meta_Katie = df_meta_todo[-indices, ]
+```
+
+
+```{r}
+write.csv(df_meta_Matteo, "Retrieving_data/Matteo_todo.csv", row.names = F)
+write.csv(df_meta_Katie, "Retrieving_data/Katie_todo.csv", row.names = F)
+```
+
+```{r}
+write.csv(df_data, "Retrieving_data/data_done.csv", row.names = F)
+```
+
+
+
+

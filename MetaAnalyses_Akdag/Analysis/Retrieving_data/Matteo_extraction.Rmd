@@ -1,0 +1,38 @@
+---
+title: "Matteo_extraction"
+author: "Matteo Rossi"
+date: "2023-10-26"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Importing dataset done and title to do:
+
+```{r}
+df_done = read.csv("data_done.csv")
+colnames(df_done)
+```
+This are all the categories that need to be filled in for the new data.
+
+```{r}
+df_todo = read.csv("Matteo_todo.csv")
+```
+
+```{r}
+library(dplyr)
+colnames(df_todo)
+```
+```{r}
+df_todo |> select(TITLE, AUTHOR)
+```
+
+Article 1
+```{r}
+
+```
+
+
+
