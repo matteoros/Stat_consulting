@@ -9,6 +9,13 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+
+```{r}
+library(metafor)
+```
+
+
+
 ## Importing dataset done and title to do:
 
 ```{r}
@@ -29,13 +36,12 @@ colnames(df_todo)
 df_todo |> select(TITLE, AUTHOR)
 ```
 
+
+### Article 1
+
 ```{r}
 df_todo[1, 1]
 ```
-
-
-
-Article 1
 
 ```{r}
 n = 60
@@ -45,14 +51,14 @@ age.range = '8-12'
 
 "SAD = social anxiety; GAD = general axiety; NAD = un cazzo"
 
-infos = c("mean", "sd")
-NAD_MCQC_NBW = c(9.15, 2.23)
-GAD_MCQC_NBW = c(12.40, 3.94)
-SAD_MCQC_NBW = c(12.45, 3.28)
+infos = c("mean", "sd", "n")
+NAD_MCQC_NBW = c(9.15, 2.23, 20)
+GAD_MCQC_NBW = c(12.40, 3.94, 20)
+SAD_MCQC_NBW = c(12.45, 3.28, 20)
 
-NAD_MCQC_PBW = c(7.60, 1.54)
-GAD_MCQC_PBW = c(9.00, 3.77)
-SAD_MCQC_PBW = c(8.25, 3.18)
+NAD_MCQC_PBW = c(7.60, 1.54, 20)
+GAD_MCQC_PBW = c(9.00, 3.77, 20)
+SAD_MCQC_PBW = c(8.25, 3.18, 20)
 
 # Post Hoc
 post_hoc = c("difference", "sd", "significance", "lowerCI", "upperCI")
@@ -63,32 +69,39 @@ GAD_SAD = c(-0.05, 1.02, 0.999, -2.51, 2.41)
 
 
 
+
+
 ```{r}
-A1 = rbind(NAD_MCQC_NBW, NAD_MCQC_PBW)
-A1 = as.data.frame(A1)
-colnames(A1) = c('mean', 'sd')
-A1$group_size = c(20, 20)
-
-
-A2 = rbind(SAD_MCQC_NBW, SAD_MCQC_PBW)
-A2 = as.data.frame(A2)
-colnames(A2) = c('mean', 'sd')
-A2$group_size = c(20, 20)
+df_meta = cbind(rbind(SAD_MCQC_NBW, SAD_MCQC_PBW), rbind(NAD_MCQC_NBW, NAD_MCQC_PBW))
+df_meta = as.data.frame(df_meta)
+colnames(df_meta) = c("mean_SAD", "sd_SAD", "n_SAD",
+                      "mean_control", "sd_control", "n_control")
+df_meta
+```
+```{r}
+colnames(df_meta)
 ```
 
 
 ```{r}
-print(A1)
-print(A2)
+df_effect_size = as.data.frame(escalc(measure = 'SMD',
+                        m1i = mean_SAD, sd1i = sd_SAD, n1i = n_SAD,
+                        m2i = mean_control, sd2i = sd_control, n2i = n_control,
+                        data = df_meta))
+df_effect_size
+
 ```
 
+
+### Article 2
 
 ```{r}
-a = escalc(measure = 'SMD', m1i = A1$mean, m2i = A2$mean,
-       sd1i = A1$sd, sd2i = A2$sd,
-       n1i = A1$group_size, n2i = A2$group_size )
-a
+df_todo[2,]
 ```
+
+
+
+
 
 
 
