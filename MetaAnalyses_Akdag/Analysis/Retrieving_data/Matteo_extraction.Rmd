@@ -96,12 +96,134 @@ df_effect_size
 ### Article 2
 
 ```{r}
-df_todo[2,]
+df_todo[2, 1]
+```
+
+```{r}
+# 77 males, 223 females
+# Metacognitions Questionnaire-30 (MCQ-30)
+#Cronbach's alphas were found to be good for both Positive Beliefs (α = .82) and Negative Beliefs (α = .88)
+
+### The PB-PEPQ was found to significantly predict social anxiety symptoms, F(1, 282) = 96.84, p < .001, R2 = .26, β = .51. 
+
+### A third regression analysis was conducted to determine the degree to which positive beliefs about post-event processing and post-event processing simultaneously predicted social phobia. The overall model was significant, F(2, 251) = 52.43, p < .001, R2 = .30) and both predictor variables were significantly associated with SPIN scores, β = .32, (PB-PEP), β = .31 (PEP).
+
+
+### A hierarchical regression analysis was conducted to determine the degree to which PB-PEPQ scores predicted social phobia beyond the variance accounted for by the PEPQ-R, the Positive and Negative Beliefs subscales of the MCQ-30, and the PBRS. In the first step of the regression equation, the PEPQ-R, the positive beliefs about worry and negative beliefs about worry subscales of the MCQ-30, and the PBRS were entered as predictor variables. The SPIN was the criterion variable. The first step of the model was significant, F(4, 249) = 29.78, p < .001, R = .57, and the addition of the PB-PEPQ in the second step of the regression equation lead to a significant
+## improvement in the model, F(5, 249) = 28.91, p < .001, Delta R2 = .05. Further, based on an examination of the standardised beta weights, PB-PEPQ (β = .26) was the most robust predictor of social phobia. The PEPQ-R (β = .21), the positive beliefs about worry subscale of the MCQ (β = .13), and the negative beliefs about worry subscale of the MCQ (β = .21) were also significant predictors of SPIN scores. In contrast, the PBRS (β = .01) was not found to be associated with SPIN scores.
+
 ```
 
 
 
+### Article 3
+
+```{r}
+df_todo[3, 2]
+```
+
+```{r}
+n = 62 # in both groups
+# 87 were women and 37 were men
+
+# SA participants were more anxious than the NSA group on the SPIN, t(1,122)=8.37, p<0.01, and also reported more distress on the SDS, t(1,122)=4.76, p<0.01. The mean for the SA group on the SPIN (M=23.82) was above the cut-off score (19).  Furthermore, the mean score for SA participants on the SDS was 6.95, suggesting high levels of disability associated with their social anxiety (NSA M=3.24).
+
+# Depression
+## The average score on the BDI was M=8.41 and, consistent with previous research, participants’ social anxiety was correlated with depression (r=0.54 between SIAS and BDI). Because of this relationship, all analyses on social anxiety described below will control for participant depression.
+
+```
 
 
+### Article 4
 
+```{r}
+df_todo[4, 1]
+```
+
+```{r}
+n_tot = 39
+# 2 females only!!
+
+# the MICBT program seems to be effective in reducing the symptoms of social anxiety/phobia:
+description = c("mean", "sd", "n")
+Fear_pre = c(36.73, 10.53, n_tot)
+Fear_post = c(23.78,	7.29, n_tot)
+Fear_follow_up = c(19.26,	6.83, n_tot) # I am not sure about that all did follow up!!
+
+Avoidance_pre = c(32.43, 	9.06, n_tot)
+Avoidance_post = c(18.39,	8.37, n_tot)
+Avoidance_follow_up = c(12.00,	8.40, n_tot)
+
+total_pre = c(69.56,	19.54, n_tot)
+total_post = c(43.13,	15.98, n_tot)
+total_follow_up = c(31.17, 14.80, n_tot)
+```
+
+```{r}
+# Metacognition: 
+
+#Pos: positive beliefs about worry; Neg: negative beliefs about thoughts concerning uncontrollability and danger; CC: cognitive confidence; NC: beliefs about need to control thoughts; CSC: cognitive self-consciousness.
+
+Pos_pre = c(11.68,	2.32, n_tot)
+Pos_post = c(9.84, 2.09, n_tot)
+Pos_fu = c(9.16,	2.01, n_tot)
+Pos_tot = c(Pos_pre, Pos_post, Pos_fu)
+
+Neg_pre = c(22.40,	2.10, n_tot)
+Neg_post = c(15.92,	1.60, n_tot)
+Neg_fu = c(13.16,	1.95, n_tot)
+Neg_tot = c(Neg_pre, Neg_post, Neg_fu)
+
+CC_pre = c(12.08,	2.85, n_tot)
+CC_post = c(10.68,	1.97, n_tot)
+CC_fu = c(10.04,	1.76, n_tot)
+CC_tot = c(CC_pre, CC_post, CC_fu)
+
+NC_pre = c(21.84,	2.60, n_tot)
+NC_post = c(14.80,	2.21, n_tot)
+NC_fu = c(12.08,	2.66, n_tot)
+NC_tot = c(NC_pre, NC_post, NC_fu)
+
+CSC_pre = c(20.44,	2.45, n_tot)
+CSC_post = c(19.84,	2.76, n_tot)
+CSC_fu = c(19.12,	3.16, n_tot)
+CSC_tot = c(CSC_pre, CSC_post, CSC_fu)
+```
+
+
+```{r}
+df_pre_post_fu = as.data.frame(rbind(Pos_tot, Neg_tot, CC_tot, NC_tot, CSC_tot))
+colnames(df_pre_post_fu) = c("pre_mean", "pre_sd", "n",
+                             "post_mean", "post_sd", "n1",
+                             "fu_mean", "fu_sd", "n2")
+
+df_pre_post_fu
+```
+Creating the effectsize for the pre vs post variable group:
+```{r}
+df_effect_pre_post = as.data.frame(escalc(measure = 'SMD',
+                        m1i = pre_mean, sd1i = pre_sd, n1i = n,
+                        m2i = post_mean, sd2i = post_sd, n2i = n1,
+                        data = df_pre_post_fu))
+df_effect_pre_post = df_effect_pre_post |> select(pre_mean, pre_sd, n, post_mean, post_sd, n1, yi, vi)
+
+df_effect_pre_post
+```
+
+Creating the interaction between post and follow up:
+```{r}
+df_effect_post_fu = as.data.frame(escalc(measure = 'SMD',
+                        m1i = post_mean, sd1i = post_sd, n1i = n1,
+                        m2i = fu_mean, sd2i = fu_sd, n2i = n2,
+                        data = df_pre_post_fu))
+
+df_effect_post_fu = df_effect_post_fu |> select(post_mean, post_sd, n1, fu_mean, fu_sd, n2, yi, vi)
+
+df_effect_post_fu
+
+```
+
+
+```{r}
+```
 
