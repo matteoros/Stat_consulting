@@ -1,0 +1,31 @@
+\newpage
+\chapter{Methodology}
+\section*{Search Criteria}
+The data in meta-analyses originate from existing studies.
+For this meta-analysis, researchers first compiled a body of relevant, existing literature from four databases (psycINFO, Medline, EMBASE, and Web of Science Core Collection; conducted March 13, 2023) by considering research on either social phobia (SAD) and meta-cognition or social phobia and HRV.
+After duplicates were removed from the pool of papers, two raters screened titles and abstracts for inclusion and exclusion criteria.
+Inclusion criteria consist of: studies with a socially anxious patient population, papers that specifically mention one of the instruments used to measure meta-cognition or HRV, and studies with patient populations under the age of 24.
+Papers that include co-morbid disorders or where social anxiety is not considered separately in the results section were excluded.
+After the remaining papers were screened by a second rater, 34 papers were retained for meta-cognition, and 54 papers were retained for HRV.
+Of these, two additional raters independently screened 30 (meta-cognition) and 50 (HRV) papers for inclusion, with raters largely in agreement on paper inclusion or exclusion (Kappa inter-reliability: Meta-cognition = 0.902; HRV = 0.913). \\
+For this initial meta-analysis, we restrict the scope of the study by considering only the literature on meta-cognition. These papers were then carefully read and relevant data extracted.
+
+\section*{Data Information}
+The data set compiled for the meta-analysis contains $26$ variables that characterize each of the $54$ papers included in this study. The variables included in the data set fall into $5$ different categories: \textbf{Paper information}, \textbf{Participant information}, \textbf{Social anxiety data}, and \textbf{Metacognition methodology}.
+The \textbf{Paper information} variables contain the information necessary for identifying the paper, such as the authors, year of publication, and the study's country of origin. 
+The \textbf{Participant information} category is composed of variables that describe the sample included in each study, such as sample size, gender and ethnic composition, and participant age.
+The \textbf{Social anxiety data} variables capture data on the type of study conducted (correlational or group comparison), the type of instrument used to measure social anxiety (e.g. self-reported, clinician assessed) and recruitment measure (e.g. referred by therapists).
+The \textbf{Meta-cognition methodology} category includes variables related to the type of Meta-cognition measure used in a study (trait or state) and information on the meta-cognition measurement instrument used (the number of questions included in it).
+Finally, the \textbf{Results} variables include the results obtained from each study, giving information about the statistical analysis performed, the effect size, the type of measure used (effect size: d-measures or correlation: r-measures), and the significance of the results.
+The $95\%$ confidence interval and the variance of the effect size estimates are also included.
+
+\section*{Statistical Analysis}
+A random-effects meta-analysis was performed to estimate the overall effect size of the relationship between meta-cognition and social anxiety.
+Initially, the data set was cleaned by removing papers with missing information on the effect size.
+Moreover, it was necessary to uniform the different effect size estimates type into a single one, since both means differences with standard deviations ($d$ effect size) and correlations ($r$ effect size) were included in the data set.
+Therefore, the correlation coefficients were transformed into the corresponding effect size estimate and standard deviations using the following formulas reported by \cite{mathur_simple_2020}:
+$$d = \frac{2r}{\sqrt{1 - r^2}}$$
+$$\hat{SE}(d) = \frac{2}{(N-1)(1 - r^2)}$$
+With $r$ being the correlational coefficient and $N$ being the number of individuals included.
+Finally it was possible to perform the random-effects meta-analysis using the converted dataset as described in the previous steps.
+The entire analysis were performed using the \texttt{metafor} package in \texttt{R}.

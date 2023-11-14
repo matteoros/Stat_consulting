@@ -1,0 +1,41 @@
+\documentclass[12pt, a4paper]{report}
+
+%%%%%% General Packages
+\usepackage[margin=3.2cm]{geometry}
+\usepackage{subcaption}
+\usepackage{graphicx}
+\usepackage[utf8]{inputenc}
+\usepackage{emptypage}
+
+%%%%%% bibliography
+\usepackage[backend=biber, style=apa]{biblatex}
+\setlength\bibitemsep{\baselineskip}
+\addbibresource{ref.bib}
+
+%%%%%% Math package
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{caption}
+\usepackage{setspace}
+\usepackage{hyperref} 
+\onehalfspacing
+\renewcommand*\contentsname{Table of contents}
+\usepackage{siunitx}
+
+
+
+\begin{document}
+\title{Statistical Consulting}
+\author{Matteo Rossi \& Katharina Lindefjeld}
+\date{September 2023}
+\maketitle
+
+
+\pagenumbering{arabic}
+\input{1_Intro}
+\input{2_Methods}
+%\input{3_Results}
+
+\printbibliography
+\end{document}
