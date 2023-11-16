@@ -1,0 +1,391 @@
+---
+title: "Analysis"
+author: "Matteo Rossi"
+date: "2023-11-15"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Importing the libraries
+
+```{r}
+library(readxl)
+library(dplyr)
+library(metafor)
+```
+
+
+### Reading and Cleaning the dataframe
+
+```{r}
+df = read_excel("PaperCharacterizationTable_Meta.xlsx",
+                sheet = "Metacognition",
+                skip = 1)
+```
+```{r}
+df = df %>% select(-starts_with('...'))
+```
+
+```{r}
+colnames(df)
+```
+
+
+```{r}
+# Sample size included, Sex (%female), "Ethnic background (% white)"
+# age range, d or R, effect size, V, 95% CI
+# Select only the columns you're interested in
+df_meta = df %>% select(`Sample size included`, `Sex (%female)`, `Ethnic background (% white)`,
+                        `age range`, `d or R`, `effect size`, `V`, `95% CI`)
+```
+
+```{r}
+# Define the function
+transform_var_names <- function(df) {
+  # Get the variable names
+  var_names <- names(df)
+  
+  # Replace spaces with underscores
+  new_var_names <- gsub(" ", "_", var_names)
+  
+  # Assign the new variable names back to the data frame
+  names(df) <- new_var_names
+  
+  # Return the modified data frame
+  return(df)
+}
+
+# Use the function
+
+```
+
+
+```{r}
+df_meta <- transform_var_names(df_meta)
+df_meta
+```
+```{r}
+df_meta |> colnames()
+```
+
+
+
+```{r}
+df_meta = df_meta[df_meta$d_or_R == "r" | df_meta$d_or_R == "d", ]
+df_meta$d_or_R = as.factor(df_meta$d_or_R)
+df_meta
+```
+
+```{r}
+df_meta = df_meta[!is.na(df_meta$V),]
+```
+
+```{r}
+df_meta$`Ethnic_background_(%_white)` = ifelse(df_meta$`Ethnic_background_(%_white)` == "-", NA, df_meta$`Ethnic_background_(%_white)`)
+```
+
+```{r}
+# Define the function
+convert_percentage <- function(vec) {
+  # Identify the elements that end with a "%" sign
+  percentage_indices <- grepl("%$", vec)
+  
+  # For these elements, remove the "%" sign, convert to numeric, and divide by 100
+  vec[percentage_indices] <- as.numeric(sub("%", "", vec[percentage_indices])) / 100
+  
+  # Convert to as.numeric
+  vec = as.numeric(vec)
+  
+  # Return the modified vector
+  return(vec)
+}
+```
+
+```{r}
+df_meta$`Ethnic_background_(%_white)` = convert_percentage(df_meta$`Ethnic_background_(%_white)`)
+```
+
+```{r}
+df_meta$`Sex_(%female)` = ifelse(df_meta$`Sex_(%female)` == '-', NA, df_meta$`Sex_(%female)`)
+df_meta$`Sex_(%female)` = convert_percentage(df_meta$`Sex_(%female)`)
+```
+
+```{r}
+df_meta$`Sex_(%female)`
+```
+
+
+```{r}
+df_meta$effect_size[30] = '1.177'
+```
+
+```{r}
+# Define the function
+convert_values <- function(vec) {
+  # Identify the elements that end with a "%" sign
+  percentage_indices <- grepl("%$", vec)
+  
+  # For these elements, remove the "%" sign, convert to numeric, and divide by 100
+  vec[percentage_indices] <- as.numeric(sub("%", "", vec[percentage_indices])) / 100
+  
+  # Identify the elements that start with "("
+  bracket_indices <- grepl("^\\(", vec)
+  
+  # For these elements, remove the "(" and ")" characters and convert to numeric
+  vec[bracket_indices] <- as.numeric(sub("\\)$", "", sub("^\\(", "", vec[bracket_indices])))
+  
+  # Convert the rest of the vector to numeric
+  vec[!is.na(vec) & !percentage_indices & !bracket_indices] <- as.numeric(vec[!is.na(vec) & !percentage_indices & !bracket_indices])
+  
+  # Return the modified vector
+  return(vec)
+}
+
+
+df_meta$effect_size = convert_values(df_meta$effect_size)
+```
+
+```{r}
+df_meta$V = as.numeric(df_meta$V)
+```
+
+```{r}
+df_meta$effect_size = as.numeric(df_meta$effect_size)
+```
+
+```{r}
+df_meta$std = sqrt(df_meta$V)
+```
+
+```{r}
+str(df_meta)
+```
+
+```{r}
+# Define the function
+fix_and_split_values <- function(vec) {
+  # Replace the first and third commas with a period
+  fixed_vec <- gsub("^\\[([^,]*),", "[\\1.", vec)
+  fixed_vec <- gsub(",([^,]*)\\]$", ".\\1]", fixed_vec)
+  
+  # Split the string at the remaining comma
+  split_vec <- strsplit(fixed_vec, ",")
+  
+  # Initialize vectors for val1 and val2
+  val1 <- numeric(length(vec))
+  val2 <- numeric(length(vec))
+  
+  # Loop over the split_vec list
+  for (i in seq_along(split_vec)) {
+    # Remove the "[" and "]" characters and convert to numeric
+    val1[i] <- as.numeric(gsub("\\[", "", split_vec[[i]][1]))
+    val2[i] <- as.numeric(gsub("\\]", "", split_vec[[i]][2]))
+  }
+  
+  # Return a data frame with two columns
+  return(data.frame(val1 = val1, val2 = val2))
+}
+
+# Use the function
+
+fix_and_split_values(df_meta$`95%_CI`)
+```
+
+```{r}
+# Load the stringr package
+library(stringr)
+
+# Define the string
+str <- "[0,0694, 0,315]"
+
+# Count the number of commas
+str_count(str, ",")
+```
+
+```{r}
+
+
+convert_CI = function(CI){
+  CI_final = c()
+  for(ci in CI){
+    if (str_count(ci, ',') == 3){
+      ci = gsub("^\\[([^,]*),", "[\\1.", str)
+      ci = gsub(",([^,]*)\\]$", ".\\1]", str)
+    }
+    CI_final = c(CI_final, ci)
+  }
+  return(CI_final)
+}
+
+convert_CI(df_meta$`95%_CI`)
+
+```
+```{r}
+num_commas = str_count(df_meta$`95%_CI`, ',')
+ind = which(num_commas == 3)
+
+for(i in ind) {
+  string = df_meta$`95%_CI`[i]
+  string = gsub("^\\[([^,]*),", "[\\1.", string)
+  string = gsub(",([^,]*)\\]$", ".\\1]", string)
+  df_meta$`95%_CI`[i] = string 
+}
+```
+
+```{r}
+df_meta$`95%_CI`
+```
+```{r}
+# Define the function
+split_values <- function(vec) {
+  # Split the string at the comma
+  split_vec <- strsplit(vec, ",")
+  
+  # Initialize vectors for val1 and val2
+  val1 <- numeric(length(vec))
+  val2 <- numeric(length(vec))
+  
+  # Loop over the split_vec list
+  for (i in seq_along(split_vec)) {
+    # Check if there are more than two elements
+    if (length(split_vec[[i]]) > 2) {
+      # There is an error
+      next
+    }
+    
+    # Remove the "[" and "]" characters, replace any commas with periods, and convert to numeric
+    val1[i] <- as.numeric(sub(",", ".", gsub("\\[", "", split_vec[[i]][1])))
+    val2[i] <- as.numeric(sub(",", ".", gsub("\\]", "", split_vec[[i]][2])))
+  }
+  
+  # Return a data frame with two columns
+  return(data.frame(lower_CI = val1, upper_CI = val2))
+}
+
+# Use the function
+df = split_values(df_meta$`95%_CI`)
+df
+```
+
+```{r}
+df_meta$lower_CI = df$lower_CI
+df_meta$upper_CI = df$upper_CI
+```
+
+```{r}
+df_meta$SE = (df_meta$effect_size - df_meta$lower_CI)/qnorm(0.975)
+```
+
+```{r}
+(df_meta$effect_size - df_meta$lower_CI)/qnorm(0.975)
+```
+
+```{r}
+(df_meta$upper_CI - df_meta$effect_size)/(qnorm(0.975))
+```
+```{r}
+sqrt(df_meta$V) # standard deviation (square root of the standar error)
+```
+You calcuated wrongly the CI, since you used the standard deviation, but instead you have to use the standard error
+
+```{r}
+df_meta$SE = sqrt(df_meta$V/df_meta$Sample_size_included)
+```
+
+```{r}
+df_meta$lower_CI = df_meta$effect_size - df_meta$SE*qnorm(0.975)
+df_meta$upper_CI = df_meta$effect_size + df_meta$SE*qnorm(0.975)
+```
+
+remove std, or understand where I calculate them!
+
+```{r}
+df_meta
+```
+
+
+### Convert r into d
+
+```{r}
+convert_r_to_d = function(r){
+  num = 2*r
+  denom = sqrt((1 - r^2))
+  return(num/denom)
+}
+
+convertSE_r_toSE_d = function(SE, r){
+  num = 4*sqrt(SE)
+  denom = (1 - r^2)^3
+  return(sqrt(num/denom))
+}
+```
+
+```{r}
+df_meta_r = df_meta[df_meta$d_or_R == "r", ]
+```
+
+
+```{r}
+df_meta_r |> select(effect_size, SE)
+```
+
+
+
+```{r}
+# Apply the functions only to the rows where d_or_R is 'r'
+df_meta_r$effect_size_d = convert_r_to_d(df_meta_r$effect_size)
+
+df_meta_r$SE = convertSE_r_toSE_d(df_meta_r$SE, df_meta_r$effect_size)
+```
+
+```{r}
+df_meta_r |> select(effect_size_d, SE)
+```
+
+```{r}
+ind = which(df_meta$d_or_R == "r")
+df_meta$effect_size[ind] = df_meta_r$effect_size_d
+df_meta$SE[ind] = df_meta_r$SE
+```
+Now all our effect sizes are d!
+
+### metafor analysis
+
+```{r}
+df_meta |> select(effect_size, SE)
+```
+
+```{r}
+col_names = colnames(df_meta)
+col_names[1] = "N"
+col_names[2] = "female_prevalence"
+col_names[3] = "white_prevalence"
+col_names[4] = "type"
+colnames(df_meta) = col_names
+```
+
+
+Converting our effect sizes into the SMD, need to check that this is indeed true
+
+```{r}
+# Compute the standardized mean difference and its variance
+df_meta = escalc(measure = "SMD", n1i = N, n2i = N, yi = effect_size, sei = SE, data = df_meta)
+```
+
+```{r}
+(ran <- rma(yi, vi, data=df_meta, method="DL"))
+```
+
+```{r}
+funnel(ran)                   # funnel plot with default settings, can be made prettier, see ?funnel
+forest(ran) 
+```
+
+
+
+
+
+
