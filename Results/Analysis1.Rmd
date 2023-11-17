@@ -9,19 +9,16 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# Performing Meta-Analysis 
-
-## Importing the libraries
+### Importing the libraries
 
 ```{r}
 library(readxl)
 library(dplyr)
-library(stringr)
 library(metafor)
 ```
 
 
-## Reading the dataframe
+### Reading and Cleaning the dataframe
 
 ```{r}
 df = read_excel("PaperCharacterizationTable_Meta.xlsx",
@@ -37,20 +34,16 @@ colnames(df)
 ```
 
 
-## Cleaning and formatting
-
-### Selecting specific columns
 ```{r}
 # Sample size included, Sex (%female), "Ethnic background (% white)"
 # age range, d or R, effect size, V, 95% CI
 # Select only the columns you're interested in
-df_meta = df %>% select(`Sample size included`, `Sex (%female)`,
-                        `Ethnic background (% white)`, `age range`,
-                        `d or R`, `effect size`, `V`, `95% CI`)
+df_meta = df %>% select(`Sample size included`, `Sex (%female)`, `Ethnic background (% white)`,
+                        `age range`, `d or R`, `effect size`, `V`, `95% CI`)
 ```
 
-Defining function to create uniform columns names
 ```{r}
+# Define the function
 transform_var_names <- function(df) {
   # Get the variable names
   var_names <- names(df)
@@ -65,35 +58,37 @@ transform_var_names <- function(df) {
   return(df)
 }
 
-df_meta <- transform_var_names(df_meta)
-df_meta
-```
+# Use the function
 
+```
 
 
 ```{r}
+df_meta <- transform_var_names(df_meta)
+df_meta
+```
+```{r}
 df_meta |> colnames()
 ```
-### Selecting only specific rows
 
-Rows that have either r or d effect size
+
+
 ```{r}
 df_meta = df_meta[df_meta$d_or_R == "r" | df_meta$d_or_R == "d", ]
 df_meta$d_or_R = as.factor(df_meta$d_or_R)
 df_meta
 ```
-Removing rows that present NAs in the Variance variable
+
 ```{r}
 df_meta = df_meta[!is.na(df_meta$V),]
 ```
 
-Put "-" to NA
 ```{r}
 df_meta$`Ethnic_background_(%_white)` = ifelse(df_meta$`Ethnic_background_(%_white)` == "-", NA, df_meta$`Ethnic_background_(%_white)`)
 ```
 
-Function to convert the percentage values to numeric between 0 and 1
 ```{r}
+# Define the function
 convert_percentage <- function(vec) {
   # Identify the elements that end with a "%" sign
   percentage_indices <- grepl("%$", vec)
@@ -107,11 +102,12 @@ convert_percentage <- function(vec) {
   # Return the modified vector
   return(vec)
 }
+```
 
+```{r}
 df_meta$`Ethnic_background_(%_white)` = convert_percentage(df_meta$`Ethnic_background_(%_white)`)
 ```
 
-Put "-" to NA
 ```{r}
 df_meta$`Sex_(%female)` = ifelse(df_meta$`Sex_(%female)` == '-', NA, df_meta$`Sex_(%female)`)
 df_meta$`Sex_(%female)` = convert_percentage(df_meta$`Sex_(%female)`)
@@ -121,12 +117,11 @@ df_meta$`Sex_(%female)` = convert_percentage(df_meta$`Sex_(%female)`)
 df_meta$`Sex_(%female)`
 ```
 
-Convert from 1177 to 1.177
+
 ```{r}
 df_meta$effect_size[30] = '1.177'
 ```
 
-For elements with "%" sign, convert to numeric, and divide by 100
 ```{r}
 # Define the function
 convert_values <- function(vec) {
@@ -155,14 +150,20 @@ df_meta$effect_size = convert_values(df_meta$effect_size)
 
 ```{r}
 df_meta$V = as.numeric(df_meta$V)
+```
+
+```{r}
 df_meta$effect_size = as.numeric(df_meta$effect_size)
+```
+
+```{r}
 df_meta$std = sqrt(df_meta$V)
 ```
 
 ```{r}
 str(df_meta)
 ```
-### Convert CI into 2 different columns
+
 ```{r}
 # Define the function
 fix_and_split_values <- function(vec) {
@@ -193,6 +194,16 @@ fix_and_split_values <- function(vec) {
 fix_and_split_values(df_meta$`95%_CI`)
 ```
 
+```{r}
+# Load the stringr package
+library(stringr)
+
+# Define the string
+str <- "[0,0694, 0,315]"
+
+# Count the number of commas
+str_count(str, ",")
+```
 
 ```{r}
 
@@ -209,17 +220,7 @@ convert_CI = function(CI){
   return(CI_final)
 }
 
-CI = df_meta$`95%_CI`
-for(i in 1:length(CI)){
-  CI_final = c()
-  if (str_count(CI[i], ',') == 3){
-      ci = gsub("^\\[([^,]*),", "[\\1.", str)
-      ci = gsub(",([^,]*)\\]$", ".\\1]", str)
-  }
-  CI_final(CI_final, ci)
-}
-
-#convert_CI(as.character(df_meta$`95%_CI`))
+convert_CI(df_meta$`95%_CI`)
 
 ```
 ```{r}
@@ -275,7 +276,7 @@ df_meta$upper_CI = df$upper_CI
 ```
 
 ```{r}
-#df_meta$SE = (df_meta$effect_size - df_meta$lower_CI)/qnorm(0.975)
+df_meta$SE = (df_meta$effect_size - df_meta$lower_CI)/qnorm(0.975)
 ```
 
 ```{r}
@@ -288,10 +289,8 @@ df_meta$upper_CI = df$upper_CI
 ```{r}
 sqrt(df_meta$V) # standard deviation (square root of the standar error)
 ```
-You calculated wrongly the CI, since you used the standard deviation, but instead you have to use the standard error!
+You calcuated wrongly the CI, since you used the standard deviation, but instead you have to use the standard error
 
-
-### Calculating the right CI using the standard error
 ```{r}
 df_meta$SE = sqrt(df_meta$V/df_meta$Sample_size_included)
 ```
@@ -301,16 +300,13 @@ df_meta$lower_CI = df_meta$effect_size - df_meta$SE*qnorm(0.975)
 df_meta$upper_CI = df_meta$effect_size + df_meta$SE*qnorm(0.975)
 ```
 
+remove std, or understand where I calculate them!
 
 ```{r}
-df_meta |> str()
+df_meta
 ```
-## Final organization of the dataframe
-```{r}
-df_meta |> select(Sample_size_included,`Sex_(%female)`,
-                  `Ethnic_background_(%_white)`, age_range, d_or_R,
-                  effect_size, V, `95%_CI`, std, lower_CI, upper_CI, SE )
-```
+
+### Considering only the r
 
 ```{r}
 df <- df_meta |>
@@ -345,7 +341,10 @@ tau^2 harder to interpret
 
 ```{r}
 inf_r = influence(res_r)
-inf_r
+```
+
+```{r}
+inf_r$inf$inf
 ```
 No influencial studies, since no "*" in the inf column
 
@@ -355,7 +354,7 @@ plot(inf_r)
 ```
 
 ```{r}
-forest(res)
+forest(res_r)
 ```
 
 
@@ -380,13 +379,9 @@ convertSE_r_toSE_d = function(SE, r){
 df_meta_r = df_meta[df_meta$d_or_R == "r", ]
 ```
 
-```{r}
-colnames(df_meta_r)
-```
-
 
 ```{r}
-df_meta_r |> select(d_or_R, effect_size, SE)
+df_meta_r |> select(effect_size, SE)
 ```
 
 
@@ -408,12 +403,6 @@ df_meta$effect_size[ind] = df_meta_r$effect_size_d
 df_meta$SE[ind] = df_meta_r$SE
 ```
 Now all our effect sizes are d!
-
-
-```{r}
-df_meta |> colnames()
-```
-
 
 ### metafor analysis
 
