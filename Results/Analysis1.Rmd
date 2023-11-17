@@ -303,15 +303,17 @@ df_meta$upper_CI = df_meta$effect_size + df_meta$SE*qnorm(0.975)
 remove std, or understand where I calculate them!
 
 ```{r}
-df_meta
+df_meta |> colnames()
 ```
 
 ### Considering only the r
 
 ```{r}
 df <- df_meta |>
-  rename(ni = Sample_size_included, type = d_or_R) %>%
-  select(ni, type, effect_size, V, std, lower_CI, upper_CI, SE) 
+  rename(ni = Sample_size_included, type = d_or_R,
+         female_perc = `Sex_(%female)`,
+         white_ethnicity = `Ethnic_background_(%_white)`) %>%
+  select(ni, type, effect_size, V, std, lower_CI, upper_CI, SE, female_perc, white_ethnicity) 
 ```
 
 
@@ -355,8 +357,37 @@ plot(inf_r)
 
 ```{r}
 forest(res_r)
+
+forest(res_r, atransf=transf.ztor,
+       at=transf.rtoz(c(-0.4, -0.2, 0, 0.2, 0.4, 0.6)),
+       digits=c(2, 1), cex=0.8)
+```
+Study Bias
+
+```{r}
+funnel(res_r)
 ```
 
+```{r}
+regtest(res_r)
+```
+There is some Funnel Plot asymmetry, also proven by this formal test
+
+## Moderator analysis
+
+```{r}
+colnames(df_r)
+```
+
+```{r}
+res_mod.female = rma(yi, vi, mods = ~female_perc, data = df_r)
+res_mod.female
+```
+```{r}
+res_mod.white = rma(yi, vi, mods = ~white_ethnicity, data = df_r)
+res_mod.white
+```
+We get a significant result for white_ethnicicy prevalence (maybe we need to tranform this variable too!)
 
 
 ### Convert r into d
