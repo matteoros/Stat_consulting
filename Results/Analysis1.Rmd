@@ -3,13 +3,18 @@ title: "Analysis"
 author: "Matteo Rossi"
 date: "2023-11-15"
 output: pdf_document
+keep_md: yes
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r setup-chunk, include=FALSE}
+knitr::opts_chunk$set(dev = "png",
+                      dpi = 300,
+                      echo = FALSE,
+                      cache = TRUE)
 ```
 
-### Importing the libraries
+
+## Importing the libraries
 
 ```{r}
 library(readxl)
@@ -18,108 +23,81 @@ library(metafor)
 ```
 
 
-### Reading and Cleaning the dataframe
+## Reading and Cleaning the dataframe
 
 ```{r}
 df = read_excel("PaperCharacterizationTable_Meta.xlsx",
                 sheet = "Metacognition",
                 skip = 1)
-```
-```{r}
-df = df %>% select(-starts_with('...'))
-```
 
-```{r}
+df = df %>% select(-starts_with('...'))
+
 colnames(df)
 ```
 
-
+Select only the columns you're interested in:
 ```{r}
-# Sample size included, Sex (%female), "Ethnic background (% white)"
-# age range, d or R, effect size, V, 95% CI
-# Select only the columns you're interested in
-df_meta = df %>% select(`Sample size included`, `Sex (%female)`, `Ethnic background (% white)`,
+df_meta = df %>% select(`Authors`, `Sample size included`, `Sex (%female)`, `Ethnic background (% white)`,
                         `age range`, `d or R`, `effect size`, `V`, `95% CI`)
 ```
 
+Change the names of the columns:
 ```{r}
-# Define the function
 transform_var_names <- function(df) {
-  # Get the variable names
+  # transform the columns names with space into _ 
   var_names <- names(df)
-  
-  # Replace spaces with underscores
   new_var_names <- gsub(" ", "_", var_names)
-  
-  # Assign the new variable names back to the data frame
   names(df) <- new_var_names
-  
   # Return the modified data frame
   return(df)
 }
 
 # Use the function
-
+df_meta = transform_var_names(df_meta)
+colnames(df_meta)
 ```
 
-
-```{r}
-df_meta <- transform_var_names(df_meta)
-df_meta
-```
-```{r}
-df_meta |> colnames()
-```
-
-
-
+Select only the effect size available (r or d)
 ```{r}
 df_meta = df_meta[df_meta$d_or_R == "r" | df_meta$d_or_R == "d", ]
 df_meta$d_or_R = as.factor(df_meta$d_or_R)
-df_meta
 ```
 
+Remove all the rows that present a NA value inside the variance variable
 ```{r}
 df_meta = df_meta[!is.na(df_meta$V),]
 ```
 
+Convert the percentages into prevalence value between 0 and 1:
 ```{r}
-df_meta$`Ethnic_background_(%_white)` = ifelse(df_meta$`Ethnic_background_(%_white)` == "-", NA, df_meta$`Ethnic_background_(%_white)`)
-```
-
-```{r}
-# Define the function
 convert_percentage <- function(vec) {
-  # Identify the elements that end with a "%" sign
   percentage_indices <- grepl("%$", vec)
-  
-  # For these elements, remove the "%" sign, convert to numeric, and divide by 100
   vec[percentage_indices] <- as.numeric(sub("%", "", vec[percentage_indices])) / 100
-  
-  # Convert to as.numeric
   vec = as.numeric(vec)
-  
-  # Return the modified vector
   return(vec)
 }
 ```
 
+For the varibles ethnic and female, convert some variables from "-" to NA and then convert all the percentages variables
 ```{r}
+df_meta$`Ethnic_background_(%_white)` = ifelse(df_meta$`Ethnic_background_(%_white)` == "-", NA, df_meta$`Ethnic_background_(%_white)`)
 df_meta$`Ethnic_background_(%_white)` = convert_percentage(df_meta$`Ethnic_background_(%_white)`)
-```
 
-```{r}
+
 df_meta$`Sex_(%female)` = ifelse(df_meta$`Sex_(%female)` == '-', NA, df_meta$`Sex_(%female)`)
 df_meta$`Sex_(%female)` = convert_percentage(df_meta$`Sex_(%female)`)
 ```
 
+Checking if Sex is numeric:
 ```{r}
-df_meta$`Sex_(%female)`
+is.numeric(df_meta$`Sex_(%female)`)
 ```
 
-
+Converting the wrong value of effect size (we can see that the correct has the point from the confidence interval)
 ```{r}
+print(df_meta$effect_size[30])
 df_meta$effect_size[30] = '1.177'
+df_meta$effect_size[30]
 ```
 
 ```{r}
@@ -150,13 +128,7 @@ df_meta$effect_size = convert_values(df_meta$effect_size)
 
 ```{r}
 df_meta$V = as.numeric(df_meta$V)
-```
-
-```{r}
 df_meta$effect_size = as.numeric(df_meta$effect_size)
-```
-
-```{r}
 df_meta$std = sqrt(df_meta$V)
 ```
 
@@ -164,66 +136,11 @@ df_meta$std = sqrt(df_meta$V)
 str(df_meta)
 ```
 
+### handling the CI 
+
+Convert the CI that present 3 commas (error) into only 1 (the second)
 ```{r}
-# Define the function
-fix_and_split_values <- function(vec) {
-  # Replace the first and third commas with a period
-  fixed_vec <- gsub("^\\[([^,]*),", "[\\1.", vec)
-  fixed_vec <- gsub(",([^,]*)\\]$", ".\\1]", fixed_vec)
-  
-  # Split the string at the remaining comma
-  split_vec <- strsplit(fixed_vec, ",")
-  
-  # Initialize vectors for val1 and val2
-  val1 <- numeric(length(vec))
-  val2 <- numeric(length(vec))
-  
-  # Loop over the split_vec list
-  for (i in seq_along(split_vec)) {
-    # Remove the "[" and "]" characters and convert to numeric
-    val1[i] <- as.numeric(gsub("\\[", "", split_vec[[i]][1]))
-    val2[i] <- as.numeric(gsub("\\]", "", split_vec[[i]][2]))
-  }
-  
-  # Return a data frame with two columns
-  return(data.frame(val1 = val1, val2 = val2))
-}
-
-# Use the function
-
-fix_and_split_values(df_meta$`95%_CI`)
-```
-
-```{r}
-# Load the stringr package
 library(stringr)
-
-# Define the string
-str <- "[0,0694, 0,315]"
-
-# Count the number of commas
-str_count(str, ",")
-```
-
-```{r}
-
-
-convert_CI = function(CI){
-  CI_final = c()
-  for(ci in CI){
-    if (str_count(ci, ',') == 3){
-      ci = gsub("^\\[([^,]*),", "[\\1.", str)
-      ci = gsub(",([^,]*)\\]$", ".\\1]", str)
-    }
-    CI_final = c(CI_final, ci)
-  }
-  return(CI_final)
-}
-
-convert_CI(df_meta$`95%_CI`)
-
-```
-```{r}
 num_commas = str_count(df_meta$`95%_CI`, ',')
 ind = which(num_commas == 3)
 
@@ -233,11 +150,9 @@ for(i in ind) {
   string = gsub(",([^,]*)\\]$", ".\\1]", string)
   df_meta$`95%_CI`[i] = string 
 }
-```
-
-```{r}
 df_meta$`95%_CI`
 ```
+Define a function to separate the two values of the confidence interval:
 ```{r}
 # Define the function
 split_values <- function(vec) {
@@ -275,10 +190,13 @@ df_meta$lower_CI = df$lower_CI
 df_meta$upper_CI = df$upper_CI
 ```
 
+Using the formula for calculating the SE from the CI, but
 ```{r}
-df_meta$SE = (df_meta$effect_size - df_meta$lower_CI)/qnorm(0.975)
+# this is wrong!!
+#df_meta$SE = (df_meta$effect_size - df_meta$lower_CI)/qnorm(0.975)
 ```
 
+Using the formula for calculating the SE from the CI for both lower and upper values: 
 ```{r}
 (df_meta$effect_size - df_meta$lower_CI)/qnorm(0.975)
 ```
@@ -286,49 +204,84 @@ df_meta$SE = (df_meta$effect_size - df_meta$lower_CI)/qnorm(0.975)
 ```{r}
 (df_meta$upper_CI - df_meta$effect_size)/(qnorm(0.975))
 ```
+Comparing it to the standard deviation of the estimate is identicale: therefore you used the sd for calculating the CI, but this is indeed wrong! 
 ```{r}
 sqrt(df_meta$V) # standard deviation (square root of the standar error)
 ```
-You calcuated wrongly the CI, since you used the standard deviation, but instead you have to use the standard error
-
+You need to use the SE = sqrt(sd/n)
 ```{r}
 df_meta$SE = sqrt(df_meta$V/df_meta$Sample_size_included)
 ```
 
+Rewriting the CI correctly!
 ```{r}
 df_meta$lower_CI = df_meta$effect_size - df_meta$SE*qnorm(0.975)
 df_meta$upper_CI = df_meta$effect_size + df_meta$SE*qnorm(0.975)
 ```
 
-remove std, or understand where I calculate them!
 
 ```{r}
 df_meta |> colnames()
 ```
 
-### Considering only the r
+## Considering only the r
 
+Selecting some columns and renaming some of them: 
 ```{r}
 df <- df_meta |>
   rename(ni = Sample_size_included, type = d_or_R,
          female_perc = `Sex_(%female)`,
          white_ethnicity = `Ethnic_background_(%_white)`) %>%
-  select(ni, type, effect_size, V, std, lower_CI, upper_CI, SE, female_perc, white_ethnicity) 
+  select(Authors, ni, type, effect_size, V, std, lower_CI, upper_CI, SE, female_perc, white_ethnicity) 
+```
+
+
+### Meta-Analysis for the r-correlation
+
+```{r}
+# Sample vector of author names
+Authors <- c("Smith, John", "Doe, Jane", "Johnson, Robert")
+
+# Extract the first names
+first_names <- sapply(strsplit(Authors, ", "), function(x) x[1])
+
+# Add "et al." after each first name
+full_names <- paste(first_names, "et al.", sep = ", ")
+
+# Print the result
+print(full_names)
+
 ```
 
 
 ```{r}
 df_r = df[df$type == "r",]
 
-df_r = escalc(measure = "ZCOR", ri = effect_size, ni = ni,
-                 data = df_r)
+first_names = sapply(strsplit(df_r$Authors, ", "), function(x) x[1])
+full_names = paste(first_names, "et al.", sep = ", ")
+df_r$Authors = full_names
+df_r$Authors[9] = "Dal Bo, et al."
 ```
 
 
 ```{r}
-library(car)
-qqPlot(df_r$yi) # the yi variable is normally distributed ~N(0, 1)
+
+
+#df_r = escalc(measure = "ZCOR", ri = effect_size, ni = ni,
+#                 data = df_r, slab = Authors)
+df_r = escalc(measure = "ZCOR", ri = effect_size, ni = ni,
+              data = df_r, slab = Authors) # the names of the Authors are too long
+# Maybe it is worth it to change Authors considering only the first name and adding etc.
+# there is only the problem that one paper has the same first name
 ```
+
+
+```{r qqPlot_zcor}
+library(car)
+transformed_variable = df_r$yi
+qqPlot(transformed_variable) # the yi variable is normally distributed ~N(0, 1)
+```
+Notice that there are 4 outliers!
 
 ```{r}
 res_r = rma(yi, vi, data = df_r)
@@ -337,7 +290,7 @@ res_r
 Usually reported the Q statistics: binary test 
 
 
-I^2 it is sensitive from the sample size of our daframe
+I^2 it is sensitive from the sample size of our dataframe
 tau^2 harder to interpret
 
 
@@ -355,14 +308,16 @@ No influencial studies, since no "*" in the inf column
 plot(inf_r)
 ```
 
-```{r}
-forest(res_r)
+```{r forest_r}
+par(mar=c(4,4,2,2))
+forest(res_r, header = T, mlab = "Summary",
+       cex = 0.5)
 
-forest(res_r, atransf=transf.ztor,
-       at=transf.rtoz(c(-0.4, -0.2, 0, 0.2, 0.4, 0.6)),
-       digits=c(2, 1), cex=0.8)
+#forest(res_r, atransf=transf.ztor,
+#       at=transf.rtoz(c(-0.4, -0.2, 0, 0.2, 0.4, 0.6)),
+#       digits=c(2, 1), cex=0.8)
 ```
-Study Bias
+Study Bias:
 
 ```{r}
 funnel(res_r)
@@ -373,7 +328,7 @@ regtest(res_r)
 ```
 There is some Funnel Plot asymmetry, also proven by this formal test
 
-## Moderator analysis
+### Moderator analysis on r
 
 ```{r}
 colnames(df_r)
@@ -387,10 +342,112 @@ res_mod.female
 res_mod.white = rma(yi, vi, mods = ~white_ethnicity, data = df_r)
 res_mod.white
 ```
-We get a significant result for white_ethnicicy prevalence (maybe we need to tranform this variable too!)
+We get a significant result for white_ethnicicy prevalence (maybe we need to tranform this variable too!).
+
+## Removing Outliers only r
+
+```{r}
+df_r = df[df$type == "r",]
+
+# changing the author names
+first_names = sapply(strsplit(df_r$Authors, ", "), function(x) x[1])
+full_names = paste(first_names, "et al.", sep = ", ")
+df_r$Authors = full_names
+df_r$Authors[9] = "Dal Bo, et al."
+```
+
+Removing the rows of the author Gkika and Salam
+```{r}
+a = df_r$Authors != "Salam, et al." 
+b = df_r$Authors != "Gkika, et al."
+a & b
+```
 
 
-### Convert r into d
+```{r}
+df_r_redu = df_r[a & b, ]
+```
+```{r}
+df_r_redu = escalc(measure = "ZCOR", ri = effect_size, ni = ni,
+              data = df_r_redu, slab = Authors)
+```
+
+
+```{r}
+res_r_redu = rma(yi, vi, data = df_r_redu)
+res_r_redu
+```
+```{r without_outliers}
+forest(res_r_redu, header = T, mlab = "Summary",
+       cex = 0.5)
+```
+
+```{r funnel_redu}
+funnel(res_r_redu)
+```
+
+```{r}
+regtest(res_r_redu)
+```
+
+
+
+## Accounting for non-independece of the effect sizes from same study only in r
+Aooo
+
+```{r}
+df_r = df[df$type == "r",]
+
+head(df_r)
+
+df_r = escalc(measure = "ZCOR", ri = effect_size, ni = ni,
+                 data = df_r)
+```
+
+
+```{r}
+library(robumeta)
+mes_ss = robu(formula = yi ~ 1, data = df_r, studynum = Authoers,
+              var.eff.size = vi, modelweights = 'HIER', small = F) #, small = True
+```
+
+```{r}
+mes_ss
+```
+
+### on the reducted
+
+```{r}
+mes_redu = robu(formula = yi ~ 1, data = df_r_redu, studynum = Authors,
+              var.eff.size = vi, modelweights = 'HIER', small = F)
+mes_redu
+```
+
+
+## Considering only d
+
+```{r}
+df_d = df[df$type == 'd', ]
+#View(df_d)
+```
+```{r}
+colnames(df_d)
+```
+
+
+```{r}
+#df_d = escalc(measure = "SMD", mi = effect_size, sei = SE, n1i = ni, data = df_d)
+
+```
+
+
+
+
+
+
+## Full meta-analysis
+
+Converting r to d, standardize and perform the analysis
 
 ```{r}
 convert_r_to_d = function(r){
@@ -409,7 +466,6 @@ convertSE_r_toSE_d = function(SE, r){
 ```{r}
 df_meta_r = df_meta[df_meta$d_or_R == "r", ]
 ```
-
 
 ```{r}
 df_meta_r |> select(effect_size, SE)
@@ -456,6 +512,7 @@ Converting our effect sizes into the SMD, need to check that this is indeed true
 ```{r}
 # Compute the standardized mean difference and its variance
 df_meta = escalc(measure = "SMD", n1i = N, n2i = N, yi = effect_size, sei = SE, data = df_meta)
+#df_meta = escalc(measure = "SMD", n1i = N)
 ```
 
 ```{r}
