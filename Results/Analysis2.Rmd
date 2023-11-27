@@ -1,18 +1,13 @@
 ---
-title: "Analysis"
+title: "Analysis2"
 author: "Matteo Rossi"
-date: "2023-11-15"
+date: "2023-11-26"
 output: pdf_document
-keep_md: yes
 ---
 
-```{r setup-chunk, include=FALSE}
-knitr::opts_chunk$set(dev = "png",
-                      dpi = 300,
-                      echo = FALSE,
-                      cache = TRUE)
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
 ```
-
 
 ## Importing the libraries
 
@@ -129,7 +124,7 @@ df_meta$effect_size = convert_values(df_meta$effect_size)
 ```{r}
 df_meta$V = as.numeric(df_meta$V)
 df_meta$effect_size = as.numeric(df_meta$effect_size)
-df_meta$std = sqrt(df_meta$V)
+df_meta$SE = sqrt(df_meta$V)
 ```
 
 ```{r}
@@ -210,237 +205,15 @@ sqrt(df_meta$V) # standard deviation (square root of the standar error)
 ```
 
 ```{r}
-df_meta$SE = df_meta$std
 df_meta$SE
 ```
 
-
-### this is incorrect 
-The CI for ES is calculated using the standard deviation of the ES.
-You need to use the SE = sqrt(sd/n)
-```{r}
-df_meta$SE = sqrt(df_meta$V/df_meta$Sample_size_included)
-```
-
-Rewriting the CI correctly!
-```{r}
-df_meta$lower_CI = df_meta$effect_size - df_meta$SE*qnorm(0.975)
-df_meta$upper_CI = df_meta$effect_size + df_meta$SE*qnorm(0.975)
-```
-
+## Converting the r measurements into d measurements
 
 ```{r}
-df_meta |> colnames()
+str(df_meta)
 ```
 
-## Considering only the r
-
-Selecting some columns and renaming some of them: 
-```{r}
-df <- df_meta |>
-  rename(ni = Sample_size_included, type = d_or_R,
-         female_perc = `Sex_(%female)`,
-         white_ethnicity = `Ethnic_background_(%_white)`) %>%
-  select(Authors, ni, type, effect_size, V, SE, lower_CI, upper_CI, SE, female_perc, white_ethnicity) 
-```
-
-
-### Meta-Analysis for the r-correlation
-
-
-
-```{r}
-df_r = df[df$type == "r",]
-
-first_names = sapply(strsplit(df_r$Authors, ", "), function(x) x[1])
-full_names = paste(first_names, "et al.", sep = ", ")
-df_r$Authors = full_names
-df_r$Authors[9] = "Dal Bo, et al."
-```
-
-
-```{r}
-
-
-#df_r = escalc(measure = "ZCOR", ri = effect_size, ni = ni,
-#                 data = df_r, slab = Authors)
-df_r = escalc(measure = "ZCOR", ri = effect_size, ni = ni,
-              data = df_r, slab = Authors) # the names of the Authors are too long
-# Maybe it is worth it to change Authors considering only the first name and adding etc.
-# there is only the problem that one paper has the same first name
-```
-
-
-```{r qqPlot_zcor}
-library(car)
-transformed_variable = df_r$yi
-qqPlot(transformed_variable) # the yi variable is normally distributed ~N(0, 1)
-```
-Notice that there are 4 outliers!
-
-```{r}
-res_r = rma(yi, vi, data = df_r)
-res_r
-```
-Usually reported the Q statistics: binary test 
-
-
-I^2 it is sensitive from the sample size of our dataframe
-tau^2 harder to interpret
-
-
-```{r}
-inf_r = influence(res_r)
-```
-
-```{r}
-inf_r$inf$inf
-```
-No influencial studies, since no "*" in the inf column
-
-
-```{r}
-plot(inf_r)
-```
-
-```{r forest_r}
-par(mar=c(4,4,2,2))
-forest(res_r, header = T, mlab = "Summary",
-       cex = 0.5)
-
-#forest(res_r, atransf=transf.ztor,
-#       at=transf.rtoz(c(-0.4, -0.2, 0, 0.2, 0.4, 0.6)),
-#       digits=c(2, 1), cex=0.8)
-```
-Study Bias:
-
-```{r}
-funnel(res_r)
-```
-
-```{r}
-regtest(res_r)
-```
-There is some Funnel Plot asymmetry, also proven by this formal test
-
-### Moderator analysis on r
-
-```{r}
-colnames(df_r)
-```
-
-```{r}
-res_mod.female = rma(yi, vi, mods = ~female_perc, data = df_r)
-res_mod.female
-```
-```{r}
-res_mod.white = rma(yi, vi, mods = ~white_ethnicity, data = df_r)
-res_mod.white
-```
-We get a significant result for white_ethnicicy prevalence (maybe we need to tranform this variable too!).
-
-## Removing Outliers only r
-
-```{r}
-df_r = df[df$type == "r",]
-
-# changing the author names
-first_names = sapply(strsplit(df_r$Authors, ", "), function(x) x[1])
-full_names = paste(first_names, "et al.", sep = ", ")
-df_r$Authors = full_names
-df_r$Authors[9] = "Dal Bo, et al."
-```
-
-Removing the rows of the author Gkika and Salam
-```{r}
-a = df_r$Authors != "Salam, et al." 
-b = df_r$Authors != "Gkika, et al."
-a & b
-```
-
-
-```{r}
-df_r_redu = df_r[a & b, ]
-```
-```{r}
-df_r_redu = escalc(measure = "ZCOR", ri = effect_size, ni = ni,
-              data = df_r_redu, slab = Authors)
-```
-
-
-```{r}
-res_r_redu = rma(yi, vi, data = df_r_redu)
-res_r_redu
-```
-```{r without_outliers}
-forest(res_r_redu, header = T, mlab = "Summary",
-       cex = 0.5)
-```
-
-```{r funnel_redu}
-funnel(res_r_redu)
-```
-
-```{r}
-regtest(res_r_redu)
-```
-
-
-
-## Accounting for non-independece of the effect sizes from same study only in r
-
-
-```{r}
-df_r = df[df$type == "r",]
-
-head(df_r)
-
-df_r = escalc(measure = "ZCOR", ri = effect_size, ni = ni,
-                 data = df_r)
-```
-
-
-```{r}
-library(robumeta)
-mes_ss = robu(formula = yi ~ 1, data = df_r, studynum = Authors,
-              var.eff.size = vi, modelweights = 'HIER', small = F) #, small = True
-```
-
-```{r}
-mes_ss
-```
-
-### on the reducted
-
-```{r}
-mes_redu = robu(formula = yi ~ 1, data = df_r_redu, studynum = Authors,
-              var.eff.size = vi, modelweights = 'HIER', small = F)
-mes_redu
-```
-
-
-## Considering only d
-
-```{r}
-df_d = df[df$type == 'd', ]
-#View(df_d)
-```
-```{r}
-colnames(df_d)
-```
-
-
-```{r}
-#df_d = escalc(measure = "SMD", mi = effect_size, sei = SE, n1i = ni, data = df_d)
-
-```
-
-
-
-
-
-
-## Full meta-analysis
 
 Converting r to d, standardize and perform the analysis
 
@@ -459,7 +232,11 @@ convertSE_r_toSE_d = function(SE, r){
 ```
 
 ```{r}
-df_meta_r = df[df$type == "r", ]
+df_meta_r = df_meta[df_meta$d_or_R == "r", ]
+```
+
+```{r}
+colnames(df_meta_r)
 ```
 
 
@@ -483,27 +260,24 @@ df_meta_r$SE = convertSE_r_toSE_d(df_meta_r$SE, df_meta_r$effect_size)
 df_meta_r |> select(effect_size_d, SE)
 ```
 
-```{r}
-df_meta = df
-```
 
 
 ```{r}
-ind = which(df_meta$type == "r")
+ind = which(df_meta$d_or_R == "r")
 df_meta$effect_size[ind] = df_meta_r$effect_size_d
 df_meta$SE[ind] = df_meta_r$SE
 ```
 Now all our effect sizes are d!
 
-### metafor analysis
 
 ```{r}
-df_meta |> select(effect_size, SE)
+df_meta$effect_size
 ```
 
 ```{r}
 df_meta$SE
 ```
+
 
 ```{r}
 # Find the maximum value in the SE column
@@ -514,30 +288,59 @@ df_meta <- df_meta[df_meta$SE != max_se_value, ]
 
 ```
 
-
+```{r}
+dim(df_meta)
+```
 
 ```{r}
 col_names = colnames(df_meta)
-col_names[1] = "N"
-col_names[2] = "female_prevalence"
-col_names[3] = "white_prevalence"
-col_names[4] = "type"
+col_names[2] = "N"
+col_names[3] = "female_prevalence"
+col_names[4] = "white_prevalence"
+col_names[6] = "type"
 colnames(df_meta) = col_names
+colnames(df_meta)
 ```
 
 
 Converting our effect sizes into the SMD, need to check that this is indeed true
 
 ```{r}
-df_meta
+names(df_meta)
 ```
 
 
 ```{r}
-# Compute the standardized mean difference and its variance
-df_meta = escalc(measure = "SMD", n1i = N, n2i = N, yi = effect_size, sei = SE, data = df_meta)
-#df_meta = escalc(measure = "SMD", n1i = N)
+first_names = sapply(strsplit(df_meta$Authors, ", "), function(x) x[1])
+full_names = paste(first_names, "et al.", sep = ", ")
+df_meta$Authors = full_names
+df_meta$Authors[11] = "Dal Bo, et al."
+df_meta$Authors[39] = "Mohammadi, et al."
 ```
+
+```{r}
+df_meta$Authors
+```
+
+
+
+```{r}
+# Compute the standardized mean difference and its variance
+df_meta = escalc(measure = "SMD", n1i = N, n2i = N,
+                 yi = effect_size, sei = SE, slab = Authors, 
+                 data = df_meta)
+```
+
+```{r}
+df_meta$V
+```
+
+
+```{r}
+df_meta$vi # notice that the variances have been changed only for the r measures
+```
+
+
 
 ```{r}
 (ran <- rma(yi, vi, data=df_meta, method="DL"))
@@ -547,12 +350,30 @@ df_meta = escalc(measure = "SMD", n1i = N, n2i = N, yi = effect_size, sei = SE, 
 funnel(ran)                   # funnel plot with default settings, can be made prettier, see ?funnel
 forest(ran) 
 ```
+```{r}
+inf = influence(ran)
+inf$inf$inf
+```
 
-## Proceeding with multilevel meta-analysis
+
+## Multilevel model
 
 ```{r}
-
+(multi_ran <- rma.mv(yi, vi, random = list(~ 1 | Authors),
+                  tdist = TRUE, data=df_meta))
 ```
+
+```{r}
+par(mar=c(4,4,2,2))
+forest(multi_ran, header = T, mlab = "Summary",
+       cex = 0.5)
+```
+```{r}
+funnel(multi_ran)
+```
+
+
+
 
 
 
