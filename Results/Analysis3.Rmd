@@ -1,0 +1,312 @@
+---
+title: "Analysis3"
+author: "Katie Lindefjeld"
+date: "2023-11-28"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up file
+
+```{r}
+##### Clear global environment and console
+rm(list = ls()) #GE
+cat("\014") # console
+
+##### Load libraries
+library(readxl) 
+library(dplyr) 
+library(metafor) # package used for meta-analyses
+library(ggplot2)
+```
+## Reading and cleaning the data, check out measure distribution
+
+```{r}
+##### Read in papers
+df = read_excel("PaperCharacterizationTable_Meta_RA.xlsx", sheet = "Metacognition", skip = 1)
+df = df %>% select(-starts_with('...'))
+head(df)
+
+freq = table(df$"Authors")
+df_table <- as.data.frame(table(as.data.frame(freq)[,2]))
+
+
+##### Measure distribution before we remove anything
+p <- ggplot(data = df_table, aes(x = Var1, y = Freq)) +
+  geom_bar(stat = "identity", color = 'steelblue', fill = 'steelblue') +
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) +
+  scale_y_continuous(breaks = seq(0, max(df_table$Freq), by = 2)) +
+  labs(x = "# of Metacognition Measures Assessed Per Study", 
+       y = "# of Studies Using the Different Amounts of Measures", 
+       title = "# of Studies Using the Different Amounts of Metacognition Measures")
+
+p
+rm(freq, df_table)
+```
+### Select only the columns we're interested in:
+```{r}
+##### Preallocate the dataframe, and rename the columns in 
+df_meta = data.frame(matrix(ncol = 12, nrow = nrow(df))) # preallocate the dataframe
+
+colnames(df_meta) = c('Authors', 
+                      'Year', # Year of publication 
+                      'Age', # Mean age
+                      'Clinical', # Clinical vs. recruited participants
+                      'Instrument', #  metacognition instrument, e.g. MCQ-C
+                      'Dimensions', # metacognition dimension, e.g. positive beliefs 
+                      'Summary_dim', # preallocate for later when we summarize metacognition dims. 
+                      'N', # Sample size included (of SAD patients)
+                      'd_r', # effect measure type
+                      'effect_size', 
+                      'V', # variance
+                      '95_CI') # 95% confidence interval
+
+##### Select only those relevant columns from the original dataframe
+df_meta[,colnames(df_meta)] = df %>% select(`Authors`, `Year of publication`,
+                                              `mean age`, `Clinical sample`, `Metacognition trait or state`, # moderators
+                                              `Dimensions used (if looked at different dimension make separate rows for each dimension)`,
+                                              `Origin Country of study`, # intentionally included. will be excluded later
+                                              `Sample size included`, `d or R`, `effect size`, `V`, `95% CI`)
+
+##### Indicate which measures are general (are not specifically positive or negative)
+df_meta$Summary_dim = df_meta$Dimensions
+meta_measure = which(!(df_meta$Summary_dim %in% c("positive dimension", "negative dimension"))) 
+df_meta$Summary_dim[meta_measure] = "General"
+rm(meta_measure)
+df_meta
+```
+
+### Clean up paper titles
+```{r Author formatting}
+##### Two papers have missing commas after the surname
+df_meta$Authors[df_meta$Authors == "Dal Bo E. and Gentili C. and Fischmeister F.Ph.S. and Cecchetto C."] = "Dal Bo, E. and Gentili, C. and Fischmeister, F.Ph.S. and Cecchetto, C."
+df_meta$Authors[df_meta$Authors == "Mohammadi B. and Beige N.A."] <- "Mohammadi, B. and Beige, N.A."
+
+
+##### Rename the authors so that the names are abbreviated, and so that each paper has a unique name ID
+first_names = sapply(strsplit(df_meta$Authors, ", "), function(x) x[1])
+full_names = paste(first_names, "et al.", df_meta$Year, sep = ", ")
+df_meta$Authors = full_names
+
+
+##### Add in A and B to the unique studies with the same authors and year of publication
+Hearn = which(df_meta$Authors == "Hearn, et al., 2017")
+df_meta$Authors[Hearn[1:2]] = paste(df_meta$Authors[Hearn[1]], "A")
+df_meta$Authors[Hearn[3:4]] = paste(df_meta$Authors[Hearn[3]], "B")
+
+
+##### We define a function so that you can see how many papers remain after removing those with missing information.
+papers_left = function(df){sprintf("%.2f papers",length(unique(df$Authors)))}
+papers_left(df_meta) # We start with 26
+
+##### Remove unused variables
+rm(first_names, full_names, Hearn)
+```
+
+### Standardize all of the input types 
+```{r}
+##### remove the parentheses from the effect sizes and correct typo (we can see where the decimal goes from the confidence interval)
+df_meta$effect_size <- gsub("[()]", "", df_meta$effect_size) # remove ()
+typo = which(df_meta$effect_size==1177)
+df_meta$effect_size[typo] = 1.177 # correct typo
+
+
+##### Standardize type per column
+# Numeric variables
+numeric_columns <- c('Age', 'N', 'effect_size', 'V')
+df_meta[, numeric_columns] <- lapply(df_meta[, numeric_columns], as.numeric)
+
+# Factor variables
+factor_columns <- c('Authors', 'Clinical', 'Instrument', 'Dimensions', 'Summary_dim', 'd_r')
+df_meta[, factor_columns] <- lapply(df_meta[, factor_columns], as.factor)
+
+rm(numeric_columns,factor_columns, typo)
+```
+
+
+### Compute standard Error and standardize confidence interval reporting
+```{r}
+##### Add in standard error column
+df_meta$SE = sqrt(df_meta$V)
+
+
+##### Standardize confidence intervals. Some entries use comma separator, some use period. We standardize to use a period.
+library(stringr)
+num_commas = str_count(df_meta$`95_CI`, ',')
+ind = which(num_commas == 3)
+
+for(i in ind) {
+  string = df_meta$`95_CI`[i]
+  string = gsub("^\\[([^,]*),", "[\\1.", string)
+  string = gsub(",([^,]*)\\]$", ".\\1]", string)
+  df_meta$`95_CI`[i] = string 
+}
+
+##### Define function for splitting the confidence intervals into two separate columns so that they can be encoded as numeric
+split_values <- function(vec) {
+  # Split the string at the comma
+  split_vec <- strsplit(vec, ",")
+  
+  # Initialize vectors for val1 and val2
+  val1 <- numeric(length(vec))
+  val2 <- numeric(length(vec))
+  
+  # Loop over the split_vec list
+  for (i in seq_along(split_vec)) {
+    # Check if there are more than two elements
+    if (length(split_vec[[i]]) > 2) {
+      # There is an error
+      next
+    }
+    
+    # Remove the "[" and "]" characters, replace any commas with periods, and convert to numeric
+    val1[i] <- as.numeric(sub(",", ".", gsub("\\[", "", split_vec[[i]][1])))
+    val2[i] <- as.numeric(sub(",", ".", gsub("\\]", "", split_vec[[i]][2])))
+  }
+  
+  # Return a data frame with two columns
+  return(data.frame(lower_CI = val1, upper_CI = val2))
+}
+
+##### Employ function on the data set. lower_CI becomes the lower bound, and upper_CI becomes the upper bound
+df = split_values(df_meta$'95_CI')
+df_meta[ , c("lower_CI","upper_CI")] = df
+df_meta <- df_meta %>% select(-"95_CI") # remove the original variable
+
+rm(i, ind, num_commas, string, df)
+df_meta
+```
+### Remove studies with missing information
+Select only if the effect size is available (r or d)
+```{r}
+##### Find papers which do not have an r or a d measure
+no_d_r = which(!(df_meta$d_r %in% c("r", "d"))) 
+df_meta[no_d_r,]
+
+##### Find papers which do not have a variance
+no_var = which(is.na(df_meta$V))
+df_meta[no_var,]
+
+##### Find papers which do not have a mean age
+no_age = which(is.na(df_meta$Age))
+df_meta[no_age,]
+
+##### Some may have two measures missing, so we want the unique papers
+row_rm = unique(c(no_d_r, # no d or r measure
+                  no_var, # no variance
+                  no_age))# no median age
+
+##### Remove the papers with missing information 
+df_meta = df_meta[-row_rm,]
+papers_left(df_meta) #number of papers left 
+
+rm(no_age, no_d_r, no_var, row_rm)
+df_meta
+
+
+##### Measure distribution after problematic papers removed
+freq = table(df_meta$"Authors")
+df_table <- as.data.frame(table(as.data.frame(freq)[,2]))
+
+p1 <- ggplot(data = df_table, aes(x = Var1, y = Freq)) +
+  geom_bar(stat = "identity", color = 'steelblue', fill = 'steelblue') +
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) +
+  scale_y_continuous(breaks = seq(0, max(df_table$Freq), by = 2)) +
+  labs(x = "# of Metacognition Measures Assessed Per Study", 
+       y = "# of Studies Using the Different Amounts of Measures", 
+       title = "# of Studies Using the Different Amounts of Metacognition Measures")
+
+p1
+rm(freq,df_table)
+```
+## Prepare data for meta-analysis
+### Convert the r measurements into d measurements
+
+```{r}
+library(esc)
+#convert_z2r(0.52)
+
+
+df_meta
+convert_r_to_d = function(r){
+  num = 2*r
+  denom = sqrt((1 - r^2))
+  return(num/denom)
+}
+
+convertSE_r_toSE_d = function(SE, r){
+  num = 4*sqrt(SE)
+  denom = (1 - r^2)^3
+  return(sqrt(num/denom))
+}
+
+corrs = which(df_meta$d_r == "r")
+df_meta$SE[corrs] = convertSE_r_toSE_d(df_meta$SE[corrs], df_meta$effect_size[corrs])
+df_meta$effect_size[corrs] = convert_r_to_d(df_meta$effect_size[corrs])
+df_meta$d_r[corrs] = "d"
+rm(corrs)
+df_meta
+```
+
+### Check for outliers
+```{r}
+df_meta$effect_size
+df_meta$SE
+
+# Find the maximum value in the SE column
+max_se_value <- which.max(df_meta$SE)
+df_meta[max_se_value,]
+
+# Remove rows with the maximum SE value
+df_meta <- df_meta[-max_se_value, ]
+rm(max_se_value)
+```
+
+Converting our effect sizes into the SMD, need to check that this is indeed true
+
+```{r}
+# Compute the standardized mean difference and its variance
+df_meta = escalc(measure = "SMD", n1i = N, n2i = N,
+                 yi = effect_size, sei = SE, slab = Authors, 
+                 data = df_meta)
+```
+
+```{r}
+df_meta$V
+df_meta$vi # notice that the variances have been changed only for the r measures
+```
+## Multilevel model
+```{r}
+#library("dmetar")
+#multi_ran <- rma.mv(yi, vi, mods = ~ Age + Clinical + Summary_dim,
+#                    random = list(~ 1 | d_r, ~ 1 | Authors), sigma2=c(0,NA), tdist=TRUE, data=df_meta)
+#summary(multi_ran , digits=3)
+
+full.model <- rma.mv(yi,
+                     vi, 
+                     mods = ~ Age + Clinical + Summary_dim,
+                     slab = Authors,
+                     data = df_meta,
+                     random = ~ 1 | Authors,
+                     test = "t", 
+                     method = "REML")
+summary(full.model)
+#i2 <- var.comp(full.model)
+#summary(i2)
+```
+
+```{r}
+par(mar=c(4,4,2,2))
+forest(full.model, header = T, mlab = "Summary",
+       cex = 0.5)
+```
+```{r}
+funnel(full.model)
+```
