@@ -1,7 +1,7 @@
 ---
 title: "Analysis3"
 author: "Katie Lindefjeld"
-date: "2023-11-28"
+date: "2023-11-29"
 output: pdf_document
 ---
 
@@ -26,7 +26,7 @@ library(ggplot2)
 
 ```{r}
 ##### Read in papers
-df = read_excel("PaperCharacterizationTable_Meta_RAtest.xlsx", sheet = "Metacognition", skip = 1)
+df = read_excel("PaperCharacterizationTable_Meta_RA.xlsx", sheet = "Metacognition", skip = 1)
 df = df %>% select(-starts_with('...'))
 head(df)
 
@@ -51,13 +51,14 @@ rm(freq, df_table)
 ### Select only the columns we're interested in:
 ```{r}
 ##### Preallocate the dataframe, and rename the columns in 
-df_meta = data.frame(matrix(ncol = 12, nrow = nrow(df))) # preallocate the dataframe
+df_meta = data.frame(matrix(ncol = 13, nrow = nrow(df))) # preallocate the dataframe
 
 colnames(df_meta) = c('Authors', 
                       'Year', # Year of publication 
                       'Age', # Mean age
                       'Clinical', # Clinical vs. recruited participants
                       'Instrument', #  metacognition instrument, e.g. MCQ-C
+                      'Instrument_simpl',
                       'Dimensions', # metacognition dimension, e.g. positive beliefs 
                       'Summary_dim', # preallocate for later when we summarize metacognition dims. 
                       'N', # Sample size included (of SAD patients)
@@ -68,17 +69,21 @@ colnames(df_meta) = c('Authors',
 
 ##### Select only those relevant columns from the original dataframe
 df_meta[,colnames(df_meta)] = df %>% select(`Authors`, `Year of publication`,
-                                              `mean age`, `Clinical sample`, `Metacognition trait or state`, # moderators
+                                              `mean age`, `Clinical sample`, `Metacognition trait or state`, `Manipulation`,# moderators
                                               `Dimensions used (if looked at different dimension make separate rows for each dimension)`,
                                               `Origin Country of study`, # intentionally included. will be excluded later
                                               `Sample size included`, `d or R`, `effect size`, `V`, `95% CI`)
 
-unique(df_meta$Dimensions)
 df_meta$Dimensions[df_meta$Dimensions == "postive dimension"] = "positive dimension"
 ##### Indicate which measures are general (are not specifically positive or negative)
 df_meta$Summary_dim = df_meta$Dimensions
 meta_measure = which(!(df_meta$Summary_dim %in% c("positive dimension", "negative dimension"))) 
 df_meta$Summary_dim[meta_measure] = "General"
+
+##### Summarize MCQ measures (since ultimately they're rephrased for children, but they ask the same questions)
+df_meta$Instrument_simpl = df_meta$Instrument
+df_meta$Instrument_simpl[grep("MCQ", df_meta$Instrument)] <- "MCQ"
+
 rm(meta_measure)
 df_meta |> select(Dimensions, Summary_dim)
 ```
@@ -124,7 +129,7 @@ numeric_columns <- c('Age', 'N', 'effect_size', 'V')
 df_meta[, numeric_columns] <- lapply(df_meta[, numeric_columns], as.numeric)
 
 # Factor variables
-factor_columns <- c('Authors', 'Clinical', 'Instrument', 'Dimensions', 'Summary_dim', 'd_r')
+factor_columns <- c('Authors', 'Clinical', 'Instrument', 'Instrument_simpl', 'Dimensions', 'Summary_dim', 'd_r')
 df_meta[, factor_columns] <- lapply(df_meta[, factor_columns], as.factor)
 df_meta$Instrument[df_meta$Instrument == "-"] = NA
 
@@ -288,23 +293,84 @@ df_meta$vi # notice that the variances have been changed only for the r measures
 ```
 ## Multilevel model
 ```{r}
-#library("dmetar")
-#multi_ran <- rma.mv(yi, vi, mods = ~ Age + Clinical + Summary_dim,
-#                    random = list(~ 1 | d_r, ~ 1 | Authors), sigma2=c(0,NA), tdist=TRUE, data=df_meta)
-#summary(multi_ran , digits=3)
-
+##### option 1: summary dim is nested in authors
 full.model <- rma.mv(yi,
                      vi, 
-                     mods = ~ Age + Clinical + Summary_dim,
+                     mods = ~ Age + Clinical + Instrument_simpl,
                      slab = Authors,
                      data = df_meta,
-                     random = ~ 1 | Authors,
+                     random = ~ 1 | Authors/Summary_dim, # level 2: individual effect sizes come from the Summary dim. Nested within level 3, the studies
                      test = "t", 
                      method = "REML")
 summary(full.model)
-#i2 <- var.comp(full.model)
-#summary(i2)
+
+##### option 2: We don't even summarize, we just use the original dimensions 
+full.model <- rma.mv(yi,
+                     vi, 
+                     mods = ~ Age + Clinical + Instrument_simpl,
+                     slab = Authors,
+                     data = df_meta,
+                     random = ~ 1 | Authors/Dimensions,
+                     test = "t", 
+                     method = "REML")
+summary(full.model)
+
 ```
+### check out aggregation options
+```{r}
+library("dplyr")
+detach("package:dplyr", unload = TRUE) # for some reason metafor::aggregate isn't working
+
+##### option one, aggregate general, positive, and negative measures together (by taking the summary_dim column, which encodes other measures of metacognition as general mesuers). 
+#     If a general measure of metacognition is present, it is averaged with the other sub measures.  maybe problematic
+agg_meta = data.frame()
+for(ID in unique(df_meta$Authors)){
+  agg_measures <- aggregate(subset(df_meta, Authors == ID), cluster = Summary_dim, rho = 0.6) ## I picked rho arbitrarily 
+  agg_meta = rbind(agg_meta, agg_measures)
+}
+
+full.model <- rma.mv(yi,
+                     vi, 
+                     mods = ~ Age + Clinical + Instrument_simpl,
+                     slab = Authors,
+                     data = agg_meta,
+                     random = ~ 1 | Authors/Summary_dim,
+                     test = "t", 
+                     method = "REML")
+summary(full.model)
+
+
+##### option two, take only the meta measure if one is recorded, delete the rest. aggregate the positive and negative measures per author
+agg_meta = data.frame()
+for(ID in unique(df_meta$Authors)){ # for each of the studies
+  subs = subset(df_meta, Authors == ID) # take a look at the studies one at a time
+  if("General" %in% subs$Dimensions){ # If the study already reports a general measure
+    row_rm = which(!(subs$Dimensions %in% c("General","positive dimension", "negative dimension"))) # find measures which aren't positive, negative, or general
+    if (length(row_rm) > 0) { #If there are any
+      subs <- subs[-row_rm, ] # delete them
+    }
+  }else{ # If no general measures are recorded in the study 
+    subs_general = aggregate(subs, cluster = Authors, rho = 0.6) # create a general measure by aggregateing all others. This means information is repeated!
+    subs_general$Dimensions = subs_general$Summary_dim = "General" # recode as general. If there was only one negative measure, that is repeated as a general measure! Check out Yu et al
+    subs = rbind(subs_general,subs) # concatenate with the original positive and negative dimensions
+  }
+  
+  agg_measures <- aggregate(subs, cluster = Summary_dim, rho = 0.6) # aggregate the repeated positive measures and the repeated negative measures
+  agg_meta = rbind(agg_meta, agg_measures) # add author data together
+}
+
+full.model <- rma.mv(yi,
+                     vi, 
+                     mods = ~ Age + Clinical + Instrument_simpl,
+                     slab = Authors,
+                     data = agg_meta,
+                     random = ~ 1 | Authors/Summary_dim,
+                     test = "t", 
+                     method = "REML")
+summary(full.model)
+
+```
+
 
 ```{r}
 par(mar=c(4,4,2,2))
