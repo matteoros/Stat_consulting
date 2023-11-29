@@ -26,7 +26,7 @@ library(ggplot2)
 
 ```{r}
 ##### Read in papers
-df = read_excel("PaperCharacterizationTable_Meta_RA.xlsx", sheet = "Metacognition", skip = 1)
+df = read_excel("PaperCharacterizationTable_Meta_RAtest.xlsx", sheet = "Metacognition", skip = 1)
 df = df %>% select(-starts_with('...'))
 head(df)
 
@@ -36,7 +36,7 @@ df_table <- as.data.frame(table(as.data.frame(freq)[,2]))
 
 ##### Measure distribution before we remove anything
 p <- ggplot(data = df_table, aes(x = Var1, y = Freq)) +
-  geom_bar(stat = "identity", color = 'steelblue', fill = 'steelblue') +
+  geom_bar(stat = "identity", color = 'steelblue2', fill = 'steelblue2') +
   theme_bw() +
   theme(panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank()) +
@@ -73,12 +73,14 @@ df_meta[,colnames(df_meta)] = df %>% select(`Authors`, `Year of publication`,
                                               `Origin Country of study`, # intentionally included. will be excluded later
                                               `Sample size included`, `d or R`, `effect size`, `V`, `95% CI`)
 
+unique(df_meta$Dimensions)
+df_meta$Dimensions[df_meta$Dimensions == "postive dimension"] = "positive dimension"
 ##### Indicate which measures are general (are not specifically positive or negative)
 df_meta$Summary_dim = df_meta$Dimensions
 meta_measure = which(!(df_meta$Summary_dim %in% c("positive dimension", "negative dimension"))) 
 df_meta$Summary_dim[meta_measure] = "General"
 rm(meta_measure)
-df_meta
+df_meta |> select(Dimensions, Summary_dim)
 ```
 
 ### Clean up paper titles
@@ -101,7 +103,7 @@ df_meta$Authors[Hearn[3:4]] = paste(df_meta$Authors[Hearn[3]], "B")
 
 
 ##### We define a function so that you can see how many papers remain after removing those with missing information.
-papers_left = function(df){sprintf("%.2f papers",length(unique(df$Authors)))}
+papers_left = function(df){sprintf("%.2f papers",length(unique(df_meta$Authors)))} # I changed here df_meta instead of df
 papers_left(df_meta) # We start with 26
 
 ##### Remove unused variables
@@ -124,8 +126,9 @@ df_meta[, numeric_columns] <- lapply(df_meta[, numeric_columns], as.numeric)
 # Factor variables
 factor_columns <- c('Authors', 'Clinical', 'Instrument', 'Dimensions', 'Summary_dim', 'd_r')
 df_meta[, factor_columns] <- lapply(df_meta[, factor_columns], as.factor)
+df_meta$Instrument[df_meta$Instrument == "-"] = NA
 
-rm(numeric_columns,factor_columns, typo)
+rm(numeric_columns,factor_columns, typo) 
 ```
 
 
@@ -186,20 +189,21 @@ Select only if the effect size is available (r or d)
 ```{r}
 ##### Find papers which do not have an r or a d measure
 no_d_r = which(!(df_meta$d_r %in% c("r", "d"))) 
-df_meta[no_d_r,]
+df_meta[no_d_r,] |> nrow()
 
 ##### Find papers which do not have a variance
 no_var = which(is.na(df_meta$V))
-df_meta[no_var,]
+df_meta[no_var,] |> nrow()
 
 ##### Find papers which do not have a mean age
 no_age = which(is.na(df_meta$Age))
-df_meta[no_age,]
+df_meta[no_age,] |> nrow()
 
 ##### Some may have two measures missing, so we want the unique papers
 row_rm = unique(c(no_d_r, # no d or r measure
                   no_var, # no variance
                   no_age))# no median age
+length(row_rm)
 
 ##### Remove the papers with missing information 
 df_meta = df_meta[-row_rm,]
