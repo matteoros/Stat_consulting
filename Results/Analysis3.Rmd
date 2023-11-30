@@ -26,7 +26,7 @@ library(ggplot2)
 
 ```{r}
 ##### Read in papers
-df = read_excel("PaperCharacterizationTable_Meta_RA.xlsx", sheet = "Metacognition", skip = 1)
+df = read_excel("PaperCharacterizationTable_Meta_RAtest.xlsx", sheet = "Metacognition", skip = 1)
 df = df %>% select(-starts_with('...'))
 head(df)
 
@@ -126,7 +126,7 @@ df_meta$effect_size[typo] = 1.177 # correct typo
 ##### Standardize type per column
 # Numeric variables
 numeric_columns <- c('Age', 'N', 'effect_size', 'V')
-df_meta[, numeric_columns] <- lapply(df_meta[, numeric_columns], as.numeric)
+df_meta[, numeric_columns] <- lapply(df_meta[, numeric_columns], as.numeric) # this is giving the warning that is introducing NAs
 
 # Factor variables
 factor_columns <- c('Authors', 'Clinical', 'Instrument', 'Instrument_simpl', 'Dimensions', 'Summary_dim', 'd_r')
@@ -138,6 +138,8 @@ rm(numeric_columns,factor_columns, typo)
 
 
 ### Compute standard Error and standardize confidence interval reporting
+
+It is also possible to calculat the confidence interval directly from the estimate and the sd (for effect sizes SE = sd).
 ```{r}
 ##### Add in standard error column
 df_meta$SE = sqrt(df_meta$V)
@@ -182,7 +184,7 @@ split_values <- function(vec) {
 }
 
 ##### Employ function on the data set. lower_CI becomes the lower bound, and upper_CI becomes the upper bound
-df = split_values(df_meta$'95_CI')
+df = split_values(df_meta$'95_CI') # this is introducing NAs
 df_meta[ , c("lower_CI","upper_CI")] = df
 df_meta <- df_meta %>% select(-"95_CI") # remove the original variable
 
@@ -204,7 +206,7 @@ df_meta[no_var,] |> nrow()
 no_age = which(is.na(df_meta$Age))
 df_meta[no_age,] |> nrow()
 
-##### Some may have two measures missing, so we want the unique papers
+##### Some may have two measures missing, so we want the unique rows to remove:
 row_rm = unique(c(no_d_r, # no d or r measure
                   no_var, # no variance
                   no_age))# no median age
@@ -236,6 +238,312 @@ p1
 rm(freq,df_table)
 ```
 ## Prepare data for meta-analysis
+
+
+```{r}
+#View(df_meta)
+```
+
+### Only selecting the r measurements
+
+```{r}
+df_meta_r = df_meta[df_meta$d_r == "r", ]
+
+df_meta_r$effect_size
+```
+
+```{r}
+df_meta_r = escalc(measure = "ZCOR", ri = effect_size, ni = N,
+                   data = df_meta_r, slab = Authors)
+```
+
+```{r}
+View(df_meta_r)
+```
+
+
+```{r}
+result_classic_r = rma(yi, vi, data = df_meta_r, method="DL")
+result_classic_r
+```
+We notice that there is high $I^2$, therefore this approach is wrong! We need to account for the non independence of the measurements coming from the same paper (same sample)!
+
+```{r}
+colnames(df_meta_r)
+
+```
+
+
+```{r}
+result_r1 =  rma.mv(yi,vi,
+                    # mods = ~ Age + Clinical + Instrument_simpl,
+                    slab = Authors,
+                    data = df_meta_r,
+                    random = ~ 1 | Authors/Summary_dim,
+                    test = "t", 
+                    method = "REML")
+```
+
+```{r}
+par(mar=c(4,4,2,2))
+forest(result_r1, header = T, mlab = "Summary",
+       cex = 0.65)
+```
+
+```{r}
+funnel(result_r1)
+```
+This graph is awful! Wrong
+
+```{r}
+df_meta_r$Summary_dim
+```
+
+
+
+```{r}
+sigma2 = result_r1$sigma2 
+names(sigma2) = c("sigma_squared1", "sigma_squared2")
+sigma2
+```
+
+
+Notice the two variance components $\sigma_1^2$ , $\sigma_2^2$, for the between-cluster (Authors) heterogeneity and the within-cluster (type of measurement within Authors) heterogeneity.
+ 
+```{r}
+W <- diag(1/result_r1$vi)
+X <- model.matrix(result_r1)
+P <- W - W %*% X %*% solve(t(X) %*% W %*% X) %*% t(X) %*% W
+I_square = 100 * sum(result_r1$sigma2) / (sum(result_r1$sigma2) + (result_r1$k-result_r1$p)/sum(diag(P)))
+I_square
+```
+ Source: https://www.metafor-project.org/doku.php/tips:i2_multilevel_multivariate#multilevel_models
+ 
+
+However, we can also break things down to estimate how much of the total variance can be attributed to between- and within-cluster heterogeneity separately:
+
+```{r}
+Separated_I_squared = 100 * result_r1$sigma2 / (sum(result_r1$sigma2) + (result_r1$k-result_r1$p)/sum(diag(P)))
+names(Separated_I_squared) = c("between_variance", "within_variance")
+Separated_I_squared
+```
+
+Between variance = is the variance of the estimate coming from the different Authors estimates. Is good that is high, since it means that we have results exploring well the actual population estimate.
+
+Within variance = is the part of the variance that comes from the same Type of dimensions (positive, negative or general belief).
+
+```{r}
+
+```
+
+
+
+```{r}
+df_meta_r = df_meta[df_meta$d_r == "r",]
+
+df_meta_r$Summary_dim
+
+table(as.character(df_meta_r$Authors), df_meta_r$Summary_dim)
+```
+
+
+This tells us that the studies present different results for the papers of the, but there is a reduced difference in the estimates from a paper that reports more than one effect size
+
+```{r}
+100- sum(Separated_I_squared)
+```
+This is the remaining due to sampling variance.
+
+
+
+```{r}
+calculate_estimates <- function(result_r1) {
+  # Calculate W
+  W <- diag(1/result_r1$vi)
+  
+  # Calculate X
+  X <- model.matrix(result_r1)
+  
+  # Calculate P
+  P <- W - W %*% X %*% solve(t(X) %*% W %*% X) %*% t(X) %*% W
+  
+  # Calculate I_square
+  I_square = 100 * sum(result_r1$sigma2) / (sum(result_r1$sigma2) + (result_r1$k-result_r1$p)/sum(diag(P)))
+  
+  # Calculate Separated_I_squared
+  Separated_I_squared = 100 * result_r1$sigma2 / (sum(result_r1$sigma2) + (result_r1$k-result_r1$p)/sum(diag(P)))
+  
+  # Name the elements of Separated_I_squared
+  names(Separated_I_squared) = c("between_variance", "within_variance")
+  
+  # Calculate remaining_sampling_variance
+  remaining_sampling_variance = 100 - sum(Separated_I_squared)
+  
+  # Return the results as a list
+  return(list(I_square = I_square, Separated_I_squared = Separated_I_squared, remaining_sampling_variance = remaining_sampling_variance))
+}
+
+
+calculate_estimates(result_r1)
+```
+Model2 considering moderators:
+
+```{r}
+df_meta_r = escalc(measure = "ZCOR", ri = effect_size, ni = N,
+                   data = df_meta_r, slab = Authors)
+
+result_r2 =  rma.mv(yi,vi,
+                    mods = ~ Age + Clinical + Instrument_simpl,
+                    slab = Authors,
+                    data = df_meta_r,
+                    random = ~ 1 | Authors/Summary_dim,
+                    test = "t", 
+                    method = "REML")
+
+```
+
+```{r}
+summary(result_r2)
+```
+
+The moderators are non in the complexity significant (see the F test, with p_value = $0.08 > 0.05$). It is worth it trying removing them from the equation and see if we can get something significant (Model selection)
+
+
+```{r}
+calculate_estimates(result_r2)
+```
+
+
+```{r}
+
+result_r3 =  rma.mv(yi,vi,
+                    mods = ~ Age + Clinical,
+                    slab = Authors,
+                    data = df_meta_r,
+                    random = ~ 1 | Authors/Summary_dim,
+                    test = "t", 
+                    method = "REML")
+
+summary(result_r3)
+```
+
+The Test for Residual Heterogeneity (QE) is significant (p < .0001), indicating that there is significant variation in effect sizes across studies that is not explained by the model.
+
+The Test of Moderators is not significant (p = 0.0698), suggesting that the moderators included in the model (coefficients 2 and 3) do not significantly explain the variation in effect sizes across studies.
+
+
+Here in such model the moderators are almost significant. Moreover, we notice that the redundant predictor in the warning is no more here. There is a problem with the other variable
+
+```{r}
+calculate_estimates(result_r3)
+```
+
+
+
+```{r}
+result_r4 =  rma.mv(yi,vi,
+                    mods = ~ Age + Instrument_simpl,
+                    slab = Authors,
+                    data = df_meta_r,
+                    random = ~ 1 | Authors/Summary_dim,
+                    test = "t", 
+                    method = "REML")
+
+# do not include this, is wrong!!
+```
+
+```{r}
+plot(Age ~ Instrument_simpl, data = df_meta_r)
+table(df_meta_r$Age, as.character(df_meta_r$Instrument_simpl))
+```
+
+
+```{r}
+result_r5 = rma.mv(yi,vi,
+                    mods = ~ Age,
+                    slab = Authors,
+                    data = df_meta_r,
+                    random = ~ 1 | Authors/Summary_dim,
+                    test = "t", 
+                    method = "REML")
+```
+
+```{r}
+AIC(result_r1, result_r2, result_r3, result_r4, result_r5)
+```
+
+
+
+
+
+
+
+### Converting d to r
+
+The limitation of this is that the papers probably do not report the number of each groups
+
+Finding the authors and checking the papers:
+```{r}
+d_means =  which(df_meta$d_r == "d")
+d_authors = df_meta$Authors[d_means]
+d_authors |> unique()
+```
+
+```{r}
+library(esc)
+
+d_V = df_meta$V[d_means]
+d_measures = df_meta$effect_size[d_means]
+d_n = df_meta$N[d_means]
+
+d_n1 = floor(d_n/2) # assuming that the two groups have the same size
+d_n2 = floor(d_n/2)
+
+#d_authors = df_meta$Authors[d_means]
+#d_authors |> unique()
+
+r_measures = numeric(length(d_measures))
+r_V  = numeric(length(d_measures))
+r_SE = numeric(length(d_measures))
+
+for(i in 1:length(d_measures)){
+  result = convert_d2r(d = d_measures[i], v = d_V[i], grp1n = d_n1[i], grp2n = d_n2[i])
+  r_measures[i] = result$es
+  r_V[i] = result$var
+  r_SE[i] = result$se
+}
+
+print(r_measures)
+df_meta$effect_size[d_means] = r_measures
+print(r_V)
+df_meta$V[d_means] = r_V
+print(r_SE)
+df_meta$SE[d_means] = r_SE
+#convert_d2r(d = d_measures, v = d_V, grp1n = d_n1, grp2n = d_n2)
+#convert_d2r(d = d_measures, v = d_V )
+```
+Standardize the measure:
+```{r}
+df_meta_r = escalc(measure = "ZCOR", ri = effect_size, sei = SE,
+                   data = df_meta, slab = Authors)
+```
+
+```{r}
+?escalc
+```
+
+```{r}
+res_r = rma(effect_size, N, data = df_meta_r)
+res_r
+```
+```{r}
+forest(res_r)
+```
+
+
+
+
+
 ### Convert the r measurements into d measurements
 
 ```{r}
@@ -288,7 +596,10 @@ df_meta = escalc(measure = "SMD", n1i = N, n2i = N,
 ```
 
 ```{r}
+print("Original variances:")
 df_meta$V
+
+print("Converted Variances:")
 df_meta$vi # notice that the variances have been changed only for the r measures
 ```
 ## Multilevel model
