@@ -26,7 +26,7 @@ library(ggplot2)
 
 ```{r}
 ##### Read in papers
-df = read_excel("PaperCharacterizationTable_Meta_RAtest.xlsx", sheet = "Metacognition", skip = 1)
+df = read_excel("PaperCharacterizationTable_Meta_RA.xlsx", sheet = "Metacognition", skip = 1)
 df = df %>% select(-starts_with('...'))
 head(df)
 
@@ -244,7 +244,73 @@ rm(freq,df_table)
 #View(df_meta)
 ```
 
-### Only selecting the r measurements
+# r measurements:
+
+```{r}
+df_meta_r = df_meta[df_meta$d_r == "r", ]
+```
+
+```{r}
+df_meta_r = escalc(measure = "ZCOR", ri = effect_size, ni = N,
+                   data = df_meta_r, slab = Authors)
+```
+
+
+## Multilevel analysis
+
+```{r}
+
+```
+
+
+## Trying aggregating:
+
+```{r}
+library("dplyr")
+detach("package:dplyr", unload = TRUE)
+
+agg_meta = data.frame()
+for(ID in unique(df_meta_r$Authors)){ # for each of the studies
+  subs = subset(df_meta_r, Authors == ID) # take a look at the studies one at a time
+  if("General" %in% subs$Dimensions){ # If the study already reports a general measure
+    row_rm = which(!(subs$Dimensions %in% c("General","positive dimension", "negative dimension"))) # find measures which aren't positive, negative, or general
+    if (length(row_rm) > 0) { #If there are any
+      subs <- subs[-row_rm, ] # delete them
+    }
+  }else{ # If no general measures are recorded in the study 
+    subs_general = aggregate(subs, cluster = Authors, rho = 0.6) # create a general measure by aggregateing all others. This means information is repeated!
+    subs_general$Dimensions = subs_general$Summary_dim = "General" # recode as general. If there was only one negative measure, that is repeated as a general measure! Check out Yu et al
+    subs = rbind(subs_general,subs) # concatenate with the original positive and negative dimensions
+  }
+  
+  agg_measures <- aggregate(subs, cluster = Summary_dim, rho = 0.6) # aggregate the repeated positive measures and the repeated negative measures
+  agg_meta = rbind(agg_meta, agg_measures) # add author data together
+}
+```
+
+```{r}
+View(agg_meta)
+```
+
+
+```{r}
+full.model <- rma.mv(yi,
+                     vi, 
+                     mods = ~ Age + Clinical + Instrument_simpl,
+                     slab = Authors,
+                     data = agg_meta,
+                     random = ~ 1 | Authors/Summary_dim,
+                     test = "t", 
+                     method = "REML")
+summary(full.model)
+```
+
+
+
+
+
+
+## Only selecting the r measurements
 
 ```{r}
 df_meta_r = df_meta[df_meta$d_r == "r", ]
@@ -253,12 +319,17 @@ df_meta_r$effect_size
 ```
 
 ```{r}
+unique(df_meta_r$Authors)
+```
+
+
+```{r}
 df_meta_r = escalc(measure = "ZCOR", ri = effect_size, ni = N,
                    data = df_meta_r, slab = Authors)
 ```
 
 ```{r}
-View(df_meta_r)
+#View(df_meta_r)
 ```
 
 
@@ -270,7 +341,6 @@ We notice that there is high $I^2$, therefore this approach is wrong! We need to
 
 ```{r}
 colnames(df_meta_r)
-
 ```
 
 
@@ -332,9 +402,6 @@ Between variance = is the variance of the estimate coming from the different Aut
 
 Within variance = is the part of the variance that comes from the same Type of dimensions (positive, negative or general belief).
 
-```{r}
-
-```
 
 
 
@@ -343,7 +410,7 @@ df_meta_r = df_meta[df_meta$d_r == "r",]
 
 df_meta_r$Summary_dim
 
-table(as.character(df_meta_r$Authors), df_meta_r$Summary_dim)
+table(as.character(df_meta_r$Authors), df_meta_r$Dimensions)
 ```
 
 
@@ -478,7 +545,50 @@ AIC(result_r1, result_r2, result_r3, result_r4, result_r5)
 
 
 
-### Converting d to r
+
+## Multilevel separated only r measurements
+
+
+```{r}
+colnames(df_meta_r)
+```
+
+```{r}
+model1 =  rma.mv(yi,vi,
+                 
+                    
+                    #mods = ~ Age + Clinical,
+                    slab = Authors,
+                    data = df_meta_r,
+                    random = list(~ 1 | Authors, ~ 1 | Instrument_simpl),
+                    tdist = T, 
+                    method = "REML")
+
+model2 = rma.mv(yi, vi, 
+                slab = Authors,
+                data = df_meta_r,
+                random = list(~ 1 | Authors, ~ 1 | Instrument_simpl),
+                tdist = T, 
+                sigma2= c(0, NA),
+                method = "REML")
+
+summary(model1)
+```
+
+```{r}
+model2
+```
+
+
+
+```{r}
+calculate_estimates(result_r_a)
+```
+
+
+
+
+## Converting d to r
 
 The limitation of this is that the papers probably do not report the number of each groups
 
@@ -544,7 +654,7 @@ forest(res_r)
 
 
 
-### Convert the r measurements into d measurements
+## Convert the r measurements into d measurements
 
 ```{r}
 library(esc)
@@ -572,7 +682,7 @@ rm(corrs)
 df_meta
 ```
 
-### Check for outliers
+## Check for outliers
 ```{r}
 df_meta$effect_size
 df_meta$SE
@@ -627,7 +737,7 @@ full.model <- rma.mv(yi,
 summary(full.model)
 
 ```
-### check out aggregation options
+## check out aggregation options
 ```{r}
 library("dplyr")
 detach("package:dplyr", unload = TRUE) # for some reason metafor::aggregate isn't working
