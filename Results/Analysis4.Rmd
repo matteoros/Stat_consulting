@@ -253,14 +253,14 @@ df_meta_r = escalc(measure = "ZCOR", ri = effect_size, ni = N,
 
 Adding the unique identifier for each estimate
 ```{r}
-df_meta_r$es.id = 1:nrow(df_meta_r)
+df_meta_r$es.id = paste0("id_", 1:nrow(df_meta_r))
 ```
 
 ```{r}
 colnames(df_meta_r)
 ```
 
-
+In this model we assume that individual effect sizes (level 2; defined by es.id) are nested within studies (level 3; defined by Authors). Namely we want to account for the correlation that might come from such ES within a specific study, since otherwise our estimate of Heterogeneity might be underestimated.
 ```{r}
 multi_result <- rma.mv(yi = yi, 
                      V = vi, 
@@ -275,12 +275,33 @@ multi_result <- rma.mv(yi = yi,
 summary(multi_result)
 ```
 
+First, have a look at the Variance Components. Here, we see the random-effects variances calculated for each level of our model. The first one, sigma^2.1, shows the level 3 between-cluster variance. In our example, this is equivalent to the between-study heterogeneity variance $\tau^2$ in a conventional meta-analysis (since clusters represent studies in our model). 
+The second variance component sigma^2.2 shows the variance within clusters (level 2), namely how effect sizes vary within each paper on average.
+In the nlvls column, we see the number of groups on each level. Level $3$ has $12$ groups, equal to the 
+$K = 12$ included studies. Together, these $12$ studies contain $24$ effect sizes, as shown in the second row.
+
+For checking that the model was fitted correctly we check the following information.
+
+Calculating the number of clusters (studies):
+```{r}
+length(unique(df_meta_r$Authors))
+```
+Calculating the number of effect sizes within clusters:
+```{r}
+length(unique(df_meta_r$es.id))
+```
+
+Interpretation of the result:
 ```{r}
 library(esc)
 convert_z2r(0.3059)
 ```
-This is the resulting correlation estimated in the population
+By converting back the estimated z fisher correlation term into the classical correlation result, we can obtain the resulting correlation between metacognition (in general) and Social anxiety estimated in the population.
 
+
+We can answer this question by calculating a multilevel version of $I^2$ (Cheung 2014). In conventional meta-analyses, $I^2$ represents the amount of variation not attributable to sampling error (Between study heterogenity). In three-level models, this heterogeneity variance is split into two parts: one attributable to true effect size differences within clusters (level 2), and the other to between-cluster variation (level 3).
+
+Importing the function for calculating it:
 ```{r}
 calculate_estimates <- function(result_r1) {
   # Calculate W
@@ -305,7 +326,7 @@ calculate_estimates <- function(result_r1) {
   remaining_sampling_variance = 100 - sum(Separated_I_squared)
   
   # Return the results as a list
-  return(list(I_square = I_square, Separated_I_squared = Separated_I_squared, remaining_sampling_variance = remaining_sampling_variance))
+  return(list('Total I^2' = I_square, Separated_I_squared = Separated_I_squared, remaining_sampling_variance = remaining_sampling_variance))
 }
 
 ```
@@ -313,17 +334,9 @@ calculate_estimates <- function(result_r1) {
 ```{r}
 calculate_estimates(multi_result)
 ```
+Here we can notice that the between different studies there is a lot of variability, whereas withing each single study the variability is clearly reduced (all the estimates of the effect sizes are pointing to a specific value).
 
-
-
-
-```{r}
-library(dmetar)
-i2 <- var.comp(multi_result)
-summary(i2)
-```
-
-
+Comparing the three levels model with the two level model: we need to consider that a simpler model that explains as well our data can be compared. If there is not statistical significance between the two models, then the simpler (two levels) model will be chosen.
 ```{r}
 
 removed <- rma.mv(yi = yi, 
@@ -343,8 +356,13 @@ summary(removed)
 ```{r}
 anova(multi_result, removed)
 ```
+There is statically significance in the difference based on the Likelihood Ratio Test ($\chi^2_1 = 12.79$)! This means that we prefer the three level model since is able to explain more the variability of the effect sizes included in such meta analysis.
 
-There is stastically significance in the difference!
+We can say that, although the three-level model introduces one additional parameter (i.e. it has 3 degrees of freedom instead of 2), this added complexity seems to be justified. Modeling of the nested data structure was probably a good idea, and has improved our estimate of the pooled effect.
+
+When our data contains studies with multiple effect sizes, for example, we know that these effects can not be independent. It thus makes sense to keep the nested model, since it more adequately represents how the data were “generated”. Statistically we have a confirmation about it, which makes sense for the overall result.
+
+
 
 ```{r}
 moder1 =  rma.mv(yi = yi, 
@@ -359,6 +377,67 @@ moder1 =  rma.mv(yi = yi,
 
 ```{r}
 summary(moder1)
+```
+
+### Considering the type of effect size in the analysis
+
+Now instead of considering the Author cluster, let's concentrate on the type of effect size which was included in such meta-analysis. Specifically we can consider the Dimensions measured by different questionnaires. There is a possibility that the variance of the estimates is varying because the measures registered are different. A small example can be provided here below: 
+If two effect sizes are about negative dimension, this means that the participants answered the following type of questionnaire for registering such type of dimension. This also imply that the two measures about negative dimensions will be correlated, since the instrument used for registering was the same. We want to be sure that such dependecy in our data set is correctly modeled.
+```{r}
+colnames(df_meta_r)
+```
+```{r}
+unique(as.character(df_meta_r$Dimensions))
+```
+
+In the following model at level 1 we have the participants of each study, at level 2 individual effect sizes (level 2; defined by es.id) which are nested within the type of dimension recorded (level 3).
+
+```{r}
+table(as.character(df_meta_r$Dimensions))
+```
+Consider the fact that the negative dimension is over represented in our data set. This might be problematic
+
+```{r}
+multi_result2 = rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta_r,
+                     random = ~ 1 | Dimensions/es.id, 
+                     test = "t", 
+                     method = "REML")
+```
+
+```{r}
+summary(multi_result2)
+```
+
+```{r}
+calculate_estimates(multi_result2)
+```
+From such results we can clearly see that the most of variability is within cluster. This means that there is a lot of variability within the negative belief cluster, positive belief and general clusters (the others are represented by only 1 estimates so does not make sense).
+
+This is the population estimates coming from the following model, which is significative. In general I will prefer to account for the estimates of the previous model.
+```{r}
+convert_z2r(0.3138)
+```
+
+
+
+
+
+
+```{r}
+multi_result2 <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta_r,
+                     random = ~ 1 | Authors/Summary_dim/es.id, 
+                     test = "t", 
+                     method = "REML")
+```
+
+```{r}
+summary(multi_result2)
 ```
 
 
