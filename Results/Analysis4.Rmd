@@ -379,6 +379,27 @@ moder1 =  rma.mv(yi = yi,
 summary(moder1)
 ```
 
+```{r}
+colnames(df_meta_r)
+```
+
+
+```{r}
+moder2 <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta_r,
+                     random = ~ 1 | Authors/es.id, 
+                     test = "t", 
+                     method = "REML",
+                     mods = ~ Age + Clinical)
+```
+
+```{r}
+summary(moder2)
+```
+
+
 ### Considering the type of effect size in the analysis
 
 Now instead of considering the Author cluster, let's concentrate on the type of effect size which was included in such meta-analysis. Specifically we can consider the Dimensions measured by different questionnaires. There is a possibility that the variance of the estimates is varying because the measures registered are different. A small example can be provided here below: 
@@ -422,6 +443,18 @@ convert_z2r(0.3138)
 ```
 
 
+### Consider the semplification of dimensions for the clusters
+
+```{r}
+multi_result3 = rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta_r,
+                     random = ~ 1 | Summary_dim/es.id, 
+                     test = "t", 
+                     method = "REML")
+summary(multi_result3)
+```
 
 
 
@@ -439,6 +472,139 @@ multi_result2 <- rma.mv(yi = yi,
 ```{r}
 summary(multi_result2)
 ```
+
+
+## Considering all the measures in this dataframe
+
+Converting d into r measures
+```{r}
+colnames(df_meta)
+```
+
+```{r}
+d_mes = df_meta[df_meta$d_r == "d", ]
+
+r_values = list()
+for(i in 1:nrow(d_mes)){
+  r_values[[i]] = convert_d2r(d = d_mes$effect_size[i], v = d_mes$V[i],
+                            grp1n = d_mes$N[i] , grp2n = d_mes$N[i])
+}
+```
+
+```{r}
+ r_values
+```
+```{r}
+
+r_es = numeric(10)
+r_V = numeric(10)
+for(i in 1:10){
+  r_es[i] = r_values[[i]]$es
+  r_V[i] = r_values[[i]]$var
+}
+
+df_meta$effect_size[df_meta$d_r == "d"] = r_es
+df_meta$V[df_meta$d_r == "d"] = r_V
+df_meta$d_r = "r"
+```
+
+### replication of the analysis performed
+
+```{r}
+df_meta = escalc(measure = "ZCOR", ri = effect_size, ni = N,
+                   data = df_meta, slab = Authors)
+
+df_meta$es.id = paste0("id_", 1:nrow(df_meta))
+```
+
+```{r}
+multi_result <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta,
+                     random = ~ 1 | Authors/es.id, 
+                     test = "t", 
+                     method = "REML")
+```
+
+```{r}
+summary(multi_result)
+```
+```{r}
+calculate_estimates(multi_result)
+```
+
+```{r}
+convert_z2r(0.2625)
+```
+
+```{r}
+forest(multi_result, header = T, mlab = "Summary", cex = 0.5)
+```
+
+
+### Moderator analysis on the full dataset
+
+```{r}
+colnames(df_meta)
+```
+
+
+```{r}
+mod1 <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta,
+                     random = ~ 1 | Authors/es.id, 
+                     test = "t", 
+                     mods = ~ Age + Clinical,
+                     method = "REML")
+```
+
+```{r}
+summary(mod1)
+```
+Considering the test of moderators, we notice that is not significant (p_val $= 0.3158$, so we cannot reject the null hypothesis). Therefore it is necessary to remove such moderators from the analysis.
+
+```{r}
+anova(mod1, multi_result, refit=TRUE)
+```
+We notice that the model without moderators present the lowest value of AIC therefore is preferable. Moreover we notice that even if there is no statistical difference between the two models, based on Occam's razor we should prefer the simplest model (without moderators). It also possible to notice that each p value of each moderator included is not significant. 
+
+```{r}
+colnames(df_meta)
+mod2 <- rma.mv(yi = yi,
+               V = vi, 
+               slab = Authors,
+               data = df_meta,
+               random = ~ 1 | Authors/es.id, 
+               test = "t", 
+               mods = ~ Summary_dim,
+               method = "REML")
+```
+
+```{r}
+summary(mod2)
+```
+Only the General Dimension is significant.
+
+```{r}
+mod3 <- rma.mv(yi = yi,
+               V = vi, 
+               slab = Authors,
+               data = df_meta,
+               random = ~ 1 | Authors/es.id, 
+               test = "t", 
+               mods = ~ Dimensions,
+               method = "REML")
+summary(mod3)
+```
+
+
+Notice that here only General and negative dimension are significant! This is another argument for removing them
+
+
+
 
 
 
