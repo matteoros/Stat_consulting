@@ -1,0 +1,781 @@
+---
+title: "example_multilevel"
+author: "Matteo Rossi"
+date: "2023-12-01"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up file
+
+```{r}
+##### Clear global environment and console
+rm(list = ls()) #GE
+cat("\014") # console
+
+##### Load libraries
+library(readxl) 
+library(dplyr) 
+library(metafor) # package used for meta-analyses
+library(ggplot2)
+```
+## Reading and cleaning the data, check out measure distribution
+
+```{r}
+##### Read in papers
+df = read_excel("PaperCharacterizationTable_Meta_RA.xlsx", sheet = "Metacognition", skip = 1)
+df = df %>% select(-starts_with('...'))
+head(df)
+
+freq = table(df$"Authors")
+df_table <- as.data.frame(table(as.data.frame(freq)[,2]))
+
+
+##### Measure distribution before we remove anything
+p <- ggplot(data = df_table, aes(x = Var1, y = Freq)) +
+  geom_bar(stat = "identity", color = 'steelblue2', fill = 'steelblue2') +
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) +
+  scale_y_continuous(breaks = seq(0, max(df_table$Freq), by = 2)) +
+  labs(x = "# of Metacognition Measures Assessed Per Study", 
+       y = "# of Studies Using the Different Amounts of Measures", 
+       title = "# of Studies Using the Different Amounts of Metacognition Measures")
+
+p
+rm(freq, df_table)
+```
+
+
+### Select only the columns we're interested in:
+```{r}
+##### Preallocate the dataframe, and rename the columns in 
+df_meta = data.frame(matrix(ncol = 13, nrow = nrow(df))) # preallocate the dataframe
+
+colnames(df_meta) = c('Authors', 
+                      'Year', # Year of publication 
+                      'Age', # Mean age
+                      'Clinical', # Clinical vs. recruited participants
+                      'Instrument', #  metacognition instrument, e.g. MCQ-C
+                      'Instrument_simpl',
+                      'Dimensions', # metacognition dimension, e.g. positive beliefs 
+                      'Summary_dim', # preallocate for later when we summarize metacognition dims. 
+                      'N', # Sample size included (of SAD patients)
+                      'd_r', # effect measure type
+                      'effect_size', 
+                      'V', # variance
+                      '95_CI') # 95% confidence interval
+
+##### Select only those relevant columns from the original dataframe
+df_meta[,colnames(df_meta)] = df %>% select(`Authors`, `Year of publication`,
+                                              `mean age`, `Clinical sample`, `Metacognition trait or state`, `Manipulation`,# moderators
+                                              `Dimensions used (if looked at different dimension make separate rows for each dimension)`,
+                                              `Origin Country of study`, # intentionally included. will be excluded later
+                                              `Sample size included`, `d or R`, `effect size`, `V`, `95% CI`)
+
+df_meta$Dimensions[df_meta$Dimensions == "postive dimension"] = "positive dimension" # fix typo
+
+
+##### Indicate which measures are general (are not specifically positive or negative)
+df_meta$Summary_dim = df_meta$Dimensions
+meta_measure = which(!(df_meta$Summary_dim %in% c("positive dimension", "negative dimension"))) 
+df_meta$Summary_dim[meta_measure] = "general dimension"
+
+##### Summarize MCQ measures (since ultimately they're rephrased for children, but they ask the same questions)
+df_meta$Instrument_simpl = df_meta$Instrument
+df_meta$Instrument_simpl[grep("MCQ", df_meta$Instrument)] <- "MCQ"
+
+rm(meta_measure, freq)
+df_meta |> select(Dimensions, Summary_dim)
+```
+
+### Clean up paper titles
+```{r Author formatting}
+##### Two papers have missing commas after the surname
+df_meta$Authors[df_meta$Authors == "Dal Bo E. and Gentili C. and Fischmeister F.Ph.S. and Cecchetto C."] = "Dal Bo, E. and Gentili, C. and Fischmeister, F.Ph.S. and Cecchetto, C."
+df_meta$Authors[df_meta$Authors == "Mohammadi B. and Beige N.A."] <- "Mohammadi, B. and Beige, N.A."
+
+
+##### Rename the authors so that the names are abbreviated, and so that each paper has a unique name ID
+first_names = sapply(strsplit(df_meta$Authors, ", "), function(x) x[1])
+full_names = paste(first_names, "et al.", df_meta$Year, sep = ", ")
+df_meta$Authors = full_names
+
+
+##### Add in A and B to the unique studies with the same authors and year of publication
+Hearn = which(df_meta$Authors == "Hearn, et al., 2017")
+df_meta$Authors[Hearn[1:2]] = paste(df_meta$Authors[Hearn[1]], "A")
+df_meta$Authors[Hearn[3:4]] = paste(df_meta$Authors[Hearn[3]], "B")
+
+
+##### We define a function so that you can see how many papers remain after removing those with missing information.
+papers_left = function(df){sprintf("%.2f papers",length(unique(df_meta$Authors)))} # I changed here df_meta instead of df
+papers_left(df_meta) # We start with 26
+
+##### Remove unused variables
+rm(first_names, full_names, Hearn)
+```
+
+### Standardize all of the input types 
+```{r}
+##### remove the parentheses from the effect sizes and correct typo (we can see where the decimal goes from the confidence interval)
+df_meta$effect_size <- gsub("[()]", "", df_meta$effect_size) # remove ()
+typo = which(df_meta$effect_size==1177)
+df_meta$effect_size[typo] = 1.177 # correct typo
+
+
+##### Standardize type per column
+# Numeric variables
+numeric_columns <- c('Age', 'N', 'effect_size', 'V')
+df_meta[, numeric_columns] <- lapply(df_meta[, numeric_columns], as.numeric) # this is giving the warning that is introducing NAs
+
+# Factor variables
+factor_columns <- c('Authors', 'Clinical', 'Instrument', 'Instrument_simpl', 'Dimensions', 'Summary_dim', 'd_r')
+df_meta[, factor_columns] <- lapply(df_meta[, factor_columns], as.factor)
+df_meta$Instrument[df_meta$Instrument == "-"] = NA
+
+rm(numeric_columns,factor_columns, typo) 
+```
+
+
+### Compute standard Error and standardize confidence interval reporting
+
+It is also possible to calculat the confidence interval directly from the estimate and the sd (for effect sizes SE = sd).
+```{r}
+##### Add in standard error column
+df_meta$SE = sqrt(df_meta$V)
+
+
+##### Standardize confidence intervals. Some entries use comma separator, some use period. We standardize to use a period.
+library(stringr)
+num_commas = str_count(df_meta$`95_CI`, ',')
+ind = which(num_commas == 3)
+
+for(i in ind) {
+  string = df_meta$`95_CI`[i]
+  string = gsub("^\\[([^,]*),", "[\\1.", string)
+  string = gsub(",([^,]*)\\]$", ".\\1]", string)
+  df_meta$`95_CI`[i] = string 
+}
+
+##### Define function for splitting the confidence intervals into two separate columns so that they can be encoded as numeric
+split_values <- function(vec) {
+  # Split the string at the comma
+  split_vec <- strsplit(vec, ",")
+  
+  # Initialize vectors for val1 and val2
+  val1 <- numeric(length(vec))
+  val2 <- numeric(length(vec))
+  
+  # Loop over the split_vec list
+  for (i in seq_along(split_vec)) {
+    # Check if there are more than two elements
+    if (length(split_vec[[i]]) > 2) {
+      # There is an error
+      next
+    }
+    
+    # Remove the "[" and "]" characters, replace any commas with periods, and convert to numeric
+    val1[i] <- as.numeric(sub(",", ".", gsub("\\[", "", split_vec[[i]][1])))
+    val2[i] <- as.numeric(sub(",", ".", gsub("\\]", "", split_vec[[i]][2])))
+  }
+  
+  # Return a data frame with two columns
+  return(data.frame(lower_CI = val1, upper_CI = val2))
+}
+
+##### Employ function on the data set. lower_CI becomes the lower bound, and upper_CI becomes the upper bound
+df = split_values(df_meta$'95_CI') # this is introducing NAs
+df_meta[ , c("lower_CI","upper_CI")] = df
+df_meta <- df_meta %>% select(-"95_CI") # remove the original variable
+
+rm(i, ind, num_commas, string, df)
+df_meta
+```
+### Remove studies with missing information
+Select only if the effect size is available (r or d)
+```{r}
+##### Find papers which do not have an r or a d measure
+no_d_r = which(!(df_meta$d_r %in% c("r", "d"))) 
+df_meta[no_d_r,] |> nrow()
+
+##### Find papers which do not have a variance
+no_var = which(is.na(df_meta$V))
+df_meta[no_var,] |> nrow()
+
+##### Find papers which do not have a mean age
+no_age = which(is.na(df_meta$Age))
+df_meta[no_age,] |> nrow()
+
+##### Some may have two measures missing, so we want the unique rows to remove:
+row_rm = unique(c(no_d_r, # no d or r measure
+                  no_var, # no variance
+                  no_age))# no median age
+length(row_rm)
+
+##### Remove the papers with missing information 
+df_meta = df_meta[-row_rm,]
+papers_left(df_meta) #number of papers left 
+
+rm(no_age, no_d_r, no_var, row_rm)
+df_meta
+
+```
+
+```{r}
+library(ggpubr) 
+##### prep dataframe for barplots. 
+
+# Some studies which have since been removed, and they show up with 0 effect measures
+df_meta$Authors <- as.character(df_meta$Authors)
+unique_authors <- unique(df_meta$Authors)
+df_meta$Authors <- factor(df_meta$Authors, levels = unique_authors)
+
+# Some studies have since been removed, and they show up with 0 dimensions
+df_meta$Dimensions <- as.character(df_meta$Dimensions)
+unique_dimensions <- unique(df_meta$Dimensions)
+df_meta$Dimensions <- factor(df_meta$Dimensions, levels = unique_dimensions)
+
+
+##### Studies that use given numbers of measures
+freq = table(df_meta$"Authors")
+df_table <- as.data.frame(table(as.data.frame(freq)[,2]))
+
+p1 <- ggplot(data = df_table, aes(x = Var1, y = Freq)) +
+  geom_bar(stat = "identity", color = 'gray', fill = 'gray') +
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) +
+  scale_y_continuous(breaks = seq(0, max(df_table$Freq), by = 2)) +
+  labs(x = "# of Measures per study",
+       y = "# of Studies Using Measure Amount",
+       title = "Full Dimensions")
+p1
+
+
+##### How many studies use a given measure with the full dimensions
+freq = as.data.frame(table(df_meta$Dimensions))
+p2 <- ggplot(data = freq, mapping = aes(x = reorder(Var1, Freq), Freq)) +
+  geom_bar(stat = "identity", color = 'steelblue2', fill = 'steelblue2') +
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        axis.text.x = element_text(angle = 55, hjust=1)) +
+  scale_y_continuous(breaks = seq(0, max(freq$Freq), by = 2)) +
+  labs(title = "Full Dimensions",
+       x = "Measure Identity",
+       y = "# Of Studies Using a Given Measure")
+p2
+
+##### How many studies use a given measure with the summary dimensions
+freq = as.data.frame(table(df_meta$Summary_dim))
+p3 <- ggplot(data = freq, mapping = aes(x = reorder(Var1, Freq), Freq)) +
+  geom_bar(stat = "identity", color = 'steelblue2', fill = 'steelblue2') +
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        axis.text.x = element_text(angle = 55, hjust=1)) +
+  scale_y_continuous(breaks = seq(0, max(freq$Freq), by = 2)) +
+  labs(title = "Summary Dimensions",
+       x = "Measure Identity",
+       y = "Occurence of Measure Across Studies")
+p3
+
+##### Display them all together
+figure = ggarrange(p1, p2, p3,
+          labels = c("A", "B", "C"),
+          ncol = 3, nrow = 1, align = "h")
+figure
+```
+
+
+## Considering only r effect sizes
+
+```{r}
+df_meta_r = df_meta[df_meta$d_r == "r", ]
+```
+
+```{r}
+df_meta_r = escalc(measure = "ZCOR", ri = effect_size, ni = N,
+                   data = df_meta_r, slab = Authors)
+```
+
+### Multilevel Model
+
+Adding the unique identifier for each estimate
+```{r}
+df_meta_r$es.id = paste0("id_", 1:nrow(df_meta_r))
+```
+
+```{r}
+colnames(df_meta_r)
+```
+
+In this model we assume that individual effect sizes (level 2; defined by es.id) are nested within studies (level 3; defined by Authors). Namely we want to account for the correlation that might come from such ES within a specific study, since otherwise our estimate of Heterogeneity might be underestimated.
+```{r}
+multi_result <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta_r,
+                     random = ~ 1 | Authors/es.id, 
+                     test = "t", 
+                     method = "REML")
+```
+
+```{r}
+summary(multi_result)
+```
+
+First, have a look at the Variance Components. Here, we see the random-effects variances calculated for each level of our model. The first one, sigma^2.1, shows the level 3 between-cluster variance. In our example, this is equivalent to the between-study heterogeneity variance $\tau^2$ in a conventional meta-analysis (since clusters represent studies in our model). 
+The second variance component sigma^2.2 shows the variance within clusters (level 2), namely how effect sizes vary within each paper on average.
+In the nlvls column, we see the number of groups on each level. Level $3$ has $12$ groups, equal to the 
+$K = 12$ included studies. Together, these $12$ studies contain $24$ effect sizes, as shown in the second row.
+
+For checking that the model was fitted correctly we check the following information.
+
+Calculating the number of clusters (studies):
+```{r}
+length(unique(df_meta_r$Authors))
+```
+Calculating the number of effect sizes within clusters:
+```{r}
+length(unique(df_meta_r$es.id))
+```
+
+Interpretation of the result:
+```{r}
+library(esc)
+convert_z2r(0.3059)
+```
+By converting back the estimated z fisher correlation term into the classical correlation result, we can obtain the resulting correlation between metacognition (in general) and Social anxiety estimated in the population.
+
+
+We can answer this question by calculating a multilevel version of $I^2$ (Cheung 2014). In conventional meta-analyses, $I^2$ represents the amount of variation not attributable to sampling error (Between study heterogenity). In three-level models, this heterogeneity variance is split into two parts: one attributable to true effect size differences within clusters (level 2), and the other to between-cluster variation (level 3).
+
+Importing the function for calculating it:
+```{r}
+calculate_estimates <- function(result_r1) {
+  # Calculate W
+  W <- diag(1/result_r1$vi)
+  
+  # Calculate X
+  X <- model.matrix(result_r1)
+  
+  # Calculate P
+  P <- W - W %*% X %*% solve(t(X) %*% W %*% X) %*% t(X) %*% W
+  
+  # Calculate I_square
+  I_square = 100 * sum(result_r1$sigma2) / (sum(result_r1$sigma2) + (result_r1$k-result_r1$p)/sum(diag(P)))
+  
+  # Calculate Separated_I_squared
+  Separated_I_squared = 100 * result_r1$sigma2 / (sum(result_r1$sigma2) + (result_r1$k-result_r1$p)/sum(diag(P)))
+  
+  # Name the elements of Separated_I_squared
+  names(Separated_I_squared) = c("between_variance", "within_variance")
+  
+  # Calculate remaining_sampling_variance
+  remaining_sampling_variance = 100 - sum(Separated_I_squared)
+  
+  # Return the results as a list
+  return(list('Total I^2' = I_square, Separated_I_squared = Separated_I_squared, remaining_sampling_variance = remaining_sampling_variance))
+}
+
+```
+
+```{r}
+calculate_estimates(multi_result)
+```
+Here we can notice that the between different studies there is a lot of variability, whereas withing each single study the variability is clearly reduced (all the estimates of the effect sizes are pointing to a specific value).
+
+Comparing the three levels model with the two level model: we need to consider that a simpler model that explains as well our data can be compared. If there is not statistical significance between the two models, then the simpler (two levels) model will be chosen.
+```{r}
+
+removed <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta_r,
+                     random = ~ 1 | Authors/es.id, 
+                     test = "t", 
+                     method = "REML",
+                     sigma2 =  c(0, NA))
+```
+
+```{r}
+summary(removed)
+```
+
+```{r}
+anova(multi_result, removed)
+```
+There is statically significance in the difference based on the Likelihood Ratio Test ($\chi^2_1 = 12.79$)! This means that we prefer the three level model since is able to explain more the variability of the effect sizes included in such meta analysis.
+
+We can say that, although the three-level model introduces one additional parameter (i.e. it has 3 degrees of freedom instead of 2), this added complexity seems to be justified. Modeling of the nested data structure was probably a good idea, and has improved our estimate of the pooled effect.
+
+When our data contains studies with multiple effect sizes, for example, we know that these effects can not be independent. It thus makes sense to keep the nested model, since it more adequately represents how the data were “generated”. Statistically we have a confirmation about it, which makes sense for the overall result.
+
+
+
+```{r}
+moder1 =  rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta_r,
+                     random = ~ 1 | Authors/es.id, 
+                     test = "t", 
+                     method = "REML",
+                 mods = ~ Age)
+```
+
+```{r}
+summary(moder1)
+```
+
+```{r}
+colnames(df_meta_r)
+```
+
+
+```{r}
+moder2 <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta_r,
+                     random = ~ 1 | Authors/es.id, 
+                     test = "t", 
+                     method = "REML",
+                     mods = ~ Age + Clinical)
+```
+
+```{r}
+summary(moder2)
+```
+
+
+### Considering the type of effect size in the analysis
+
+Now instead of considering the Author cluster, let's concentrate on the type of effect size which was included in such meta-analysis. Specifically we can consider the Dimensions measured by different questionnaires. There is a possibility that the variance of the estimates is varying because the measures registered are different. A small example can be provided here below: 
+If two effect sizes are about negative dimension, this means that the participants answered the following type of questionnaire for registering such type of dimension. This also imply that the two measures about negative dimensions will be correlated, since the instrument used for registering was the same. We want to be sure that such dependecy in our data set is correctly modeled.
+```{r}
+colnames(df_meta_r)
+```
+```{r}
+unique(as.character(df_meta_r$Dimensions))
+```
+
+In the following model at level 1 we have the participants of each study, at level 2 individual effect sizes (level 2; defined by es.id) which are nested within the type of dimension recorded (level 3).
+
+```{r}
+table(as.character(df_meta_r$Dimensions))
+```
+Consider the fact that the negative dimension is over represented in our data set. This might be problematic
+
+```{r}
+multi_result2 = rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta_r,
+                     random = ~ 1 | Dimensions/es.id, 
+                     test = "t", 
+                     method = "REML")
+```
+
+```{r}
+summary(multi_result2)
+```
+
+```{r}
+calculate_estimates(multi_result2)
+```
+From such results we can clearly see that the most of variability is within cluster. This means that there is a lot of variability within the negative belief cluster, positive belief and general clusters (the others are represented by only 1 estimates so does not make sense).
+
+This is the population estimates coming from the following model, which is significative. In general I will prefer to account for the estimates of the previous model.
+```{r}
+convert_z2r(summary(multi_result2)$b)
+convert_z2r(0.3138)
+```
+
+
+### Consider the semplification of dimensions for the clusters
+
+```{r}
+multi_result3 = rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta_r,
+                     random = ~ 1 | Summary_dim/es.id, 
+                     test = "t", 
+                     method = "REML")
+summary(multi_result3)
+```
+
+
+
+
+```{r}
+multi_result2 <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta_r,
+                     random = ~ 1 | Authors/Summary_dim/es.id, 
+                     test = "t", 
+                     method = "REML")
+```
+
+```{r}
+summary(multi_result2)
+```
+
+
+## Considering all the measures in this dataframe
+
+Converting d into r measures
+```{r}
+colnames(df_meta)
+```
+
+```{r}
+d_mes = df_meta[df_meta$d_r == "d", ]
+
+r_values = list()
+for(i in 1:nrow(d_mes)){
+  r_values[[i]] = convert_d2r(d = d_mes$effect_size[i], v = d_mes$V[i],
+                            grp1n = d_mes$N[i] , grp2n = d_mes$N[i])
+}
+```
+
+```{r}
+ r_values
+```
+```{r}
+
+r_es = numeric(10)
+r_V = numeric(10)
+for(i in 1:10){
+  r_es[i] = r_values[[i]]$es
+  r_V[i] = r_values[[i]]$var
+}
+
+df_meta$effect_size[df_meta$d_r == "d"] = r_es
+df_meta$V[df_meta$d_r == "d"] = r_V
+df_meta$d_r = "r"
+```
+
+### replication of the analysis performed
+
+```{r}
+df_meta = escalc(measure = "ZCOR", ri = effect_size, ni = N,
+                   data = df_meta, slab = Authors)
+
+df_meta$es.id = paste0("id_", 1:nrow(df_meta))
+```
+
+```{r}
+multi_result <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta,
+                     random = ~ 1 | Authors/es.id, 
+                     test = "t", 
+                     method = "REML")
+```
+
+```{r}
+summary(multi_result)
+```
+```{r}
+calculate_estimates(multi_result)
+```
+
+```{r}
+convert_z2r(0.2625)
+```
+
+```{r}
+forest(multi_result, header = T, mlab = "Summary", cex = 0.5)
+```
+
+
+### Moderator analysis on the full dataset
+
+```{r}
+colnames(df_meta)
+```
+
+
+```{r}
+mod1 <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta,
+                     random = ~ 1 | Authors/es.id, 
+                     test = "t", 
+                     mods = ~ Age + Clinical,
+                     method = "REML")
+```
+
+```{r}
+summary(mod1)
+```
+Considering the test of moderators, we notice that is not significant (p_val $= 0.3158$, so we cannot reject the null hypothesis). Therefore it is necessary to remove such moderators from the analysis.
+
+```{r}
+anova(mod1, multi_result, refit=TRUE)
+```
+We notice that the model without moderators present the lowest value of AIC therefore is preferable. Moreover we notice that even if there is no statistical difference between the two models, based on Occam's razor we should prefer the simplest model (without moderators). It also possible to notice that each p value of each moderator included is not significant. 
+
+```{r}
+colnames(df_meta)
+mod2 <- rma.mv(yi = yi,
+               V = vi, 
+               slab = Authors,
+               data = df_meta,
+               random = ~ 1 | Authors/es.id, 
+               test = "t", 
+               mods = ~ Summary_dim,
+               method = "REML")
+```
+
+```{r}
+summary(mod2)
+```
+Only the General Dimension is significant.
+
+```{r}
+mod3 <- rma.mv(yi = yi,
+               V = vi, 
+               slab = Authors,
+               data = df_meta,
+               random = ~ 1 | Authors/es.id, 
+               test = "t", 
+               mods = ~ Dimensions,
+               method = "REML")
+summary(mod3)
+```
+
+
+```{r}
+mod0 <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta,
+                     random = ~ 1 | Authors/es.id, 
+                     test = "t", 
+                     method = "REML",
+                     sigma2 =  c(0, NA))
+summary(mod0)
+convert_z2r(summary(mod0)$b)
+mod0ests = calculate_estimates(mod0)
+mod0ests$Separated_I_squared/mod0ests$`Total I^2`
+
+##################
+mod1 <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta,
+                     random = ~ 1 | Authors/es.id, # Random effect/metacognition measure 
+                     test = "t",
+                     method = "REML")
+summary(mod1)
+convert_z2r(summary(mod1)$b)
+calculate_estimates(mod1)
+
+anova(mod1, mod0)
+forest(mod1, header = T, mlab = "Summary", cex = 0.5)
+
+##################
+mod2 <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta,
+                     random = ~ 1 | Authors/es.id, 
+                     test = "t", 
+                     mods = ~ Age,
+                     method = "REML")
+summary(mod2)
+convert_z2r(summary(mod2)$b)
+calculate_estimates(mod2)
+
+
+##################
+mod3 <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta,
+                     random = ~ 1 | Authors/es.id, 
+                     test = "t", 
+                     mods = ~ Age + Clinical,
+                     method = "REML")
+summary(mod3)
+convert_z2r(summary(mod3)$b)
+calculate_estimates(mod3)
+
+##################
+mod4 <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta,
+                     random = ~ 1 | Authors/es.id, 
+                     test = "t", 
+                     mods = ~ Age + Clinical + Summary_dim,
+                     method = "REML")
+summary(mod4)
+convert_z2r(summary(mod4)$b)
+calculate_estimates(mod4)
+# df_meta |> select(Authors, Dimensions) significant dimensions are from ellis, not gkika 
+
+##################
+mod5 <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta,
+                     random = ~ 1 | Authors/es.id, # Random effect/metacognition measure 
+                     test = "t", 
+                     mods = ~ Age + Clinical + Dimensions,
+                     method = "REML")
+summary(mod5)
+convert_z2r(summary(mod5)$b)
+calculate_estimates(mod5)
+
+##################
+mod6 <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta,
+                     random = ~ 1 | Authors/es.id, # Random effect/metacognition measure 
+                     test = "t", 
+                     mods = ~ Age + Clinical + Summary_dim + Instrument_simpl,
+                     method = "REML")
+summary(mod6)
+convert_z2r(summary(mod6)$b)
+calculate_estimates(mod6)
+
+##################
+mod7 <- rma.mv(yi = yi, 
+                     V = vi, 
+                     slab = Authors,
+                     data = df_meta,
+                     random = ~ 1 | Authors/es.id, # Random effect/metacognition measure 
+                     test = "t", 
+                     mods = ~ Instrument_simpl,
+                     method = "REML")
+summary(mod7)
+convert_z2r(summary(mod7)$b)
+calculate_estimates(mod7)
+
+```
+
+
+
+
+
+Notice that here only General and negative dimension are significant! This is another argument for removing them
+
+
+
+
+
+
+
