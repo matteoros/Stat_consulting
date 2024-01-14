@@ -1,6 +1,6 @@
 ---
 title: "example_multilevel"
-author: "Matteo Rossi"
+author: "Matteo Rossi & Katie Lindefjeld"
 date: "2023-12-01"
 output: pdf_document
 ---
