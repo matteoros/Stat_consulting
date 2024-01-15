@@ -1,6 +1,6 @@
 ---
 title: "example_multilevel"
-author: "Matteo Rossi & Katie Lindefjeld"
+author: "Matteo Rossi"
 date: "2023-12-01"
 output: pdf_document
 ---
@@ -111,6 +111,8 @@ df_meta$Authors[Hearn[1:2]] = paste(df_meta$Authors[Hearn[1]], "A")
 df_meta$Authors[Hearn[3:4]] = paste(df_meta$Authors[Hearn[3]], "B")
 
 
+##### Add in title of questionnaire from study
+df_meta[df_meta$Authors == "Modini, et al., 2018","Instrument_simpl"] = "Thoughts Questionnaire (negative rumination subscale)"
 ##### We define a function so that you can see how many papers remain after removing those with missing information.
 papers_left = function(df){sprintf("%.2f papers",length(unique(df_meta$Authors)))} # I changed here df_meta instead of df
 papers_left(df_meta) # We start with 26
@@ -290,6 +292,57 @@ figure = ggarrange(p1, p2, p3,
           ncol = 3, nrow = 1, align = "h")
 figure
 ```
+```{r}
+inst = table(unique(df_meta[,c("Clinical","Authors")])$Clinical)
+freq =  as.data.frame(inst[inst != 0])
+p4 <- ggplot(data = freq, mapping = aes(x = reorder(Var1, Freq), Freq)) +
+  geom_bar(stat = "identity", color = 'steelblue2', fill = 'steelblue2') +
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        axis.text.x = element_text(angle = 55, hjust=1)) +
+  scale_x_discrete(labels = c("Clinical +","Clinical -")) + 
+  scale_y_continuous(breaks = seq(0, max(freq$Freq), by = 2)) +
+  labs(title = "Study Population",
+       x = "Clinical Level",
+       y = "# Of Studies With Pop. Level")
+p4
+
+
+inst = table(unique(df_meta[,c("Instrument_simpl","Authors")])$Instrument_simpl)
+freq =  as.data.frame(inst[inst != 0])
+
+p5 <- ggplot(data = freq, mapping = aes(x = reorder(Var1, Freq), Freq)) +
+  geom_bar(stat = "identity", color = 'steelblue2', fill = 'steelblue2') +
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        axis.text.x = element_text(angle = 55, hjust=1)) +
+  scale_x_discrete(labels = c("VAS-S", " BLC-I", "MW-Q", "PEP-Q", "PBR-S", "SO-S", "T-Q", "MC-Q")) + 
+  scale_y_continuous(breaks = seq(0, max(freq$Freq), by = 2)) +
+  labs(title = "Metacog. Meas. Inst.",
+       x = "Metacog. Instrument Identity",
+       y = "# Of Studies Using a Given Instrument")
+p5
+
+p6 <- ggplot(data = df_meta[,c("Age","Authors")], mapping = aes(x = reorder(Authors, Age), Age)) + geom_point() +
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        axis.text.x = element_text(angle = 90, hjust=1)) +
+  scale_x_discrete() + 
+  scale_y_continuous(breaks = seq(0, max(df_meta$Age), by = 2)) +
+  labs(title = "Mean Age per Study",
+       x = "Study",
+       y = "Mean Participant Age")
+p6
+figure = ggarrange(p6, p5, p4,
+          labels = c("A", "B", "C"),
+          ncol = 3, nrow = 1, align = "h")
+
+figure
+```
+
 
 
 ## Considering only r effect sizes
