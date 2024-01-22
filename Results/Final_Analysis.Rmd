@@ -22,7 +22,7 @@ library(dplyr)
 library(metafor) # package used for meta-analyses
 library(ggplot2)
 ```
-## Reading and cleaning the data, check out measure distribution
+## Reading and cleaning the data, check out measure distribution before data cleaning
 
 ```{r}
 ##### Read in papers
@@ -227,6 +227,7 @@ df_meta
 
 ```
 
+### Some graphs to give a better idea of some issues in the analysis/distribution of moderators
 ```{r}
 library(ggpubr) 
 ##### prep dataframe for barplots. 
@@ -416,87 +417,11 @@ df_meta = escalc(measure = "ZCOR", ri = effect_size, ni = N,
 df_meta$es.id = paste0("id_", 1:nrow(df_meta)) # differentiating between the different effect sizes
 ```
 
-```{r}
-# fitting the three levels model
-multi_result <- rma.mv(yi = yi, 
-                     V = vi, 
-                     slab = Authors,
-                     data = df_meta,
-                     random = ~ 1 | Authors/es.id, 
-                     test = "t", 
-                     method = "REML")
-```
-
-```{r}
-summary(multi_result)
-```
-```{r}
-calculate_estimates(multi_result)
-```
-
-```{r}
-convert_z2r(0.2625)
-```
-
-```{r}
-forest(multi_result, header = T, mlab = "Summary", cex = 0.5)
-```
-
-
 ### Moderator analysis on the full dataset
 
-Model 1: Including Age and Clinical as moderators
-```{r}
-mod1 <- rma.mv(yi = yi, 
-                     V = vi, 
-                     slab = Authors,
-                     data = df_meta,
-                     random = ~ 1 | Authors/es.id, 
-                     test = "t", 
-                     mods = ~ Age + Clinical,
-                     method = "REML")
-```
 
 ```{r}
-summary(mod1)
-```
-Considering the test of moderators, we notice that is not significant (p_val $= 0.3158$, so we cannot reject the null hypothesis). Therefore it is necessary to remove such moderators from the analysis.
-
-```{r}
-anova(mod1, multi_result, refit=TRUE)
-```
-We notice that the model without moderators present the lowest value of AIC therefore is preferable. Moreover we notice that even if there is no statistical difference between the two models, based on Occam's razor we should prefer the simplest model (without moderators). It also possible to notice that each p value of each moderator included is not significant. 
-
-```{r}
-mod2 <- rma.mv(yi = yi,
-               V = vi, 
-               slab = Authors,
-               data = df_meta,
-               random = ~ 1 | Authors/es.id, 
-               test = "t", 
-               mods = ~ Summary_dim,
-               method = "REML")
-```
-
-```{r}
-summary(mod2)
-```
-Only the General Dimension is significant.
-
-```{r}
-mod3 <- rma.mv(yi = yi,
-               V = vi, 
-               slab = Authors,
-               data = df_meta,
-               random = ~ 1 | Authors/es.id, 
-               test = "t", 
-               mods = ~ Dimensions,
-               method = "REML")
-summary(mod3)
-```
-
-
-```{r}
+################## 2 level model (no mods): used to justify use of three level
 mod0 <- rma.mv(yi = yi, 
                      V = vi, 
                      slab = Authors,
@@ -510,22 +435,24 @@ convert_z2r(summary(mod0)$b)
 mod0ests = calculate_estimates(mod0)
 mod0ests$Separated_I_squared/mod0ests$`Total I^2`
 
-##################
+################## 3 level model (no mods): used to justify use of three level
 mod1 <- rma.mv(yi = yi, 
                      V = vi, 
                      slab = Authors,
                      data = df_meta,
-                     random = ~ 1 | Authors/es.id, # Random effect/metacognition measure 
+                     random = ~ 1 | Authors/es.id, # Random effect/metacognition measure nested within each study 
                      test = "t",
                      method = "REML")
 summary(mod1)
 convert_z2r(summary(mod1)$b)
 calculate_estimates(mod1)
-
-anova(mod1, mod0)
 forest(mod1, header = T, mlab = "Summary", cex = 0.5)
 
-##################
+################## ANOVA result. We proceed with 3 level
+anova(mod1, mod0)
+
+
+################## 3 level model. Age as moderator
 mod2 <- rma.mv(yi = yi, 
                      V = vi, 
                      slab = Authors,
@@ -539,7 +466,8 @@ convert_z2r(summary(mod2)$b)
 calculate_estimates(mod2)
 
 
-##################
+################## 3 level model. Age + clinical  as moderators
+
 mod3 <- rma.mv(yi = yi, 
                      V = vi, 
                      slab = Authors,
@@ -552,7 +480,7 @@ summary(mod3)
 convert_z2r(summary(mod3)$b)
 calculate_estimates(mod3)
 
-##################
+################## 3 level model. Age, clinical, summary_dim as moderators
 mod4 <- rma.mv(yi = yi, 
                      V = vi, 
                      slab = Authors,
@@ -566,7 +494,7 @@ convert_z2r(summary(mod4)$b)
 calculate_estimates(mod4)
 # df_meta |> select(Authors, Dimensions) significant dimensions are from ellis, not gkika 
 
-##################
+################## 3 level model. Age, clinical, Dimensions as moderators
 mod5 <- rma.mv(yi = yi, 
                      V = vi, 
                      slab = Authors,
@@ -579,7 +507,7 @@ summary(mod5)
 convert_z2r(summary(mod5)$b)
 calculate_estimates(mod5)
 
-##################
+################## 3 level model. Age, clinical, summary_dim , instrument simplified as moderators
 mod6 <- rma.mv(yi = yi, 
                      V = vi, 
                      slab = Authors,
@@ -591,18 +519,5 @@ mod6 <- rma.mv(yi = yi,
 summary(mod6)
 convert_z2r(summary(mod6)$b)
 calculate_estimates(mod6)
-
-##################
-mod7 <- rma.mv(yi = yi, 
-                     V = vi, 
-                     slab = Authors,
-                     data = df_meta,
-                     random = ~ 1 | Authors/es.id, # Random effect/metacognition measure 
-                     test = "t", 
-                     mods = ~ Instrument_simpl,
-                     method = "REML")
-summary(mod7)
-convert_z2r(summary(mod7)$b)
-calculate_estimates(mod7)
 
 ```
